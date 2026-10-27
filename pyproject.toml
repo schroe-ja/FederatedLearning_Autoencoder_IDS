@@ -45,7 +45,9 @@ fraction-train = 1 #for how many clients train
 local-epochs = 3 #for epochs
 lr = 5e-4
 mu = 0.1 #change fedprox mu
-input-dim = 67 
+input-dim = 11 # 67 for IoTID20/CiC-BoTIoT, 11 for T-Pot Dataset
+
+# only for IoTID20/CiC-BoTIoT:
 which_dataset = 0 #for which Dataset to train and test
 # Default federation to use when running the app
 

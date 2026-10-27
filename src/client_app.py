@@ -9,12 +9,14 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from sklearn.metrics import roc_auc_score, confusion_matrix, precision_recall_curve, roc_curve,auc, average_precision_score, classification_report
+from sklearn.metrics import roc_auc_score, confusion_matrix, precision_recall_curve, roc_curve,auc, average_precision_score, classification_report, precision_score
 
 from src.task import Autoencoder
 from src.task import test as test_fn
 from src.task import train as train_fn
-from src.dataset_load import load_cross_data, load_mono_dataset
+
+# from src.dataset_load import load_cross_data, load_mono_dataset # original IoTID20/CiC-BoTIoT
+from src.dataset_load_tpot import load_device_dataset, DEVICE_NAMES # T-Pot dataset, one client per IoT device
 
 torch.use_deterministic_algorithms(True)
 
@@ -24,7 +26,7 @@ app = ClientApp()
 @app.train()
 def train(msg: Message, context: Context):
     """Train the model on local data."""
-    
+
     start_time = time.time()
 
     # Load the model and initialize it with the received weights
@@ -34,16 +36,15 @@ def train(msg: Message, context: Context):
 
     device = torch.device("cpu")
     model.to(device)
-    
-    # Load the data
+
+    # Load the data, one client per IoT device
     partition_id = context.node_config["partition-id"]
-    partition = partition_id 
-    num_partitions = context.node_config["num-partitions"]
-    which_dataset: int = context.run_config["which_dataset"]
-    
-    #trainloader, validaton_loader, _ ,_, _,_,_ = load_mono_dataset(partition, num_partitions,which_dataset=which_dataset) 
-    trainloader, validaton_loader, _, _, _, _, _ = load_cross_data(partition, num_partitions, which_dataset=which_dataset)
-    
+    partition = partition_id
+    #which_dataset: int = context.run_config["which_dataset"]
+
+    #trainloader, validaton_loader, _ ,_, _,_,_ = load_mono_dataset(partition, num_partitions,which_dataset=which_dataset)
+    trainloader, validaton_loader, _, _, _, _, _ = load_device_dataset(partition)
+
     # Call the training function
     train_loss, val_loss = train_fn(
         model,
@@ -85,21 +86,21 @@ def evaluate(msg: Message, context: Context):
     device = torch.device("cpu")
     model.to(device)
 
-    # Load the data
+    # Load the data, one client per IoT device
     partition_id = context.node_config["partition-id"]
-    partition = partition_id 
-    num_partitions = context.node_config["num-partitions"]
-    which_dataset: int = context.run_config["which_dataset"]
+    partition = partition_id
+    #which_dataset: int = context.run_config["which_dataset"]
 
     #_,_,X_test_full, X_test_validation, y_true,X_train_dt,y_dt = load_mono_dataset(partition, num_partitions,which_dataset=which_dataset)
-    _,_,X_test_full, X_test_validation, y_true,X_train_dt,y_dt = load_cross_data(partition, num_partitions, which_dataset=which_dataset)
-     
+    #_,_,X_test_full, X_test_validation, y_true,X_train_dt,y_dt = load_cross_data(partition, num_partitions, which_dataset=which_dataset)
+    _, _, X_test_full, X_test_validation, y_true, X_train_dt, y_dt = load_device_dataset(partition)
+
     # Call the evaluation function
     threshold, y_pred_percentile, errors_full, errors_val, y_pred, y_proba, _, _ = test_fn(
         model, # Autoencoder
         X_test_full, X_test_validation, # Data for Testing
         partition, # Partition ID
-        device, 
+        device,
         X_train_dt,y_dt # Data for Decision Tree; remove this for no dt
     )
 
@@ -107,10 +108,10 @@ def evaluate(msg: Message, context: Context):
     # Confusion matrix
     cmpercentile = confusion_matrix(y_true, y_pred_percentile)
     cm_dt = confusion_matrix(y_true,y_pred) #remove this for no dt
- 
-    print(f"\nConfusion Matrix Classify and Device Number {partition}:")
+
+    print(f"\nConfusion Matrix Classify and Device {partition} ({DEVICE_NAMES[partition]}):")
     print(cm_dt) #remove this for no dt
-    
+
     # Use Confusion Matrix to calculate fnr and fpr for Percentile and DT
     fprpercentile=cmpercentile[0][1]/ (cmpercentile[0][0]+cmpercentile[0][1])
     fnrpercentile=cmpercentile[1][0]/ (cmpercentile[1][1]+cmpercentile[1][0])
@@ -122,8 +123,12 @@ def evaluate(msg: Message, context: Context):
     b = roc_auc_score(y_true, y_proba) #remove this for no dt
     c = roc_auc_score(y_true,errors_full)
 
-    print(f"Device {partition} ROC AUC DT",b, "ROC AUC Error", c)
-    print(f"Device {partition} Fprpercentile",float("{:.2f}".format(fprpercentile)),"Fnrpercentile",float("{:.2f}".format(fnrpercentile)),"FPR DT",
+    a = average_precision_score(y_true, y_proba)
+    d = average_precision_score(y_true, errors_full)
+    pr_precision = precision_score(y_true, y_pred, zero_division=0)
+
+    print(f"Device {partition} ({DEVICE_NAMES[partition]}) ROC AUC DT",b, "ROC AUC Error", c)
+    print(f"Device {partition} ({DEVICE_NAMES[partition]}) Fprpercentile",float("{:.2f}".format(fprpercentile)),"Fnrpercentile",float("{:.2f}".format(fnrpercentile)),"FPR DT",
           float("{:.2f}".format(fprdt)),"FNR DT",float("{:.2f}".format(fnrdt))) #remove this for no dt
 
     end_time = time.time()
@@ -141,7 +146,7 @@ def evaluate(msg: Message, context: Context):
         #"ROC AUC DT": float("{:.4f}".format(b)), #remove this for no dt
         "ROC AUC Error": float("{:.4f}".format(c)),
         "PR AUC Error": float("{:.4f}".format(d)),
-        "Precision":float(("{:.4f}".format(pr_precísion))),
+        "Precision":float(("{:.4f}".format(pr_precision))),
         "mttd": float("{:.4f}".format(testing_time)),  # New metric
         "num-examples": len(y_true),
     }

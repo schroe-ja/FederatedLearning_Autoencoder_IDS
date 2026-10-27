@@ -12,11 +12,6 @@ import numpy as np
 
 from sklearn.model_selection import train_test_split
 
-path_exist = os.path.exists("../../datasets")
-
-if not path_exist:
-    print("Dataset directory does not exist")
-    sys.exit(1)
 
 def log1p_static_scale(df):
     """

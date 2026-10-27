@@ -21,7 +21,9 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report, confusion_matrix, f1_score,roc_auc_score, average_precision_score, matthews_corrcoef,accuracy_score
 from sklearn.tree import DecisionTreeClassifier, plot_tree
 
-from src.dataset_load import load_centralized_dataset,load_crossdataset
+# from src.dataset_load import load_centralized_dataset,load_crossdataset, INPUT-DIM # original IoTID20/CiC-BoTIoT
+from src.dataset_load_tpot import load_centralized_dataset, INPUT_DIM # T-Pot dataset
+
 
 class Autoencoder(nn.Module):
     def __init__(self, input_dim,dropout_rate=0.4): 
@@ -209,7 +211,7 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
     start_time = time.time()
 
     # Load the model and initialize it with the received weights
-    model = Autoencoder(67)
+    model = Autoencoder(INPUT_DIM)
 
     model.load_state_dict(arrays.to_torch_state_dict())
 
@@ -219,7 +221,7 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
     # Load data set
     # which_dataset 2 for BoTIoT; 3 for IoTID20 just like client
 
-    _,_,X_test_full, X_test_validation, y_true,X_train_dt,y_dt = load_centralized_dataset(which_dataset= 0) #remove everythin with dt for no dt
+    _,_,X_test_full, X_test_validation, y_true,X_train_dt,y_dt = load_centralized_dataset()
     # which_dataset 0 for Training BoTIoT -> Testing IoTID20; everything else for Training IoTID20 -> Testing BoTIoT just like client
     #_,_,X_test_full, X_test_validation, y_true,X_train_dt,y_dt = load_crossdataset(which_dataset = 1)  #remove everythin with dt for no dt
 
