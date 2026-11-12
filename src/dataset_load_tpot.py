@@ -12,83 +12,7 @@ import numpy as np
 
 from sklearn.model_selection import train_test_split
 
-DATA_DIR = os.environ.get("TPOT_DATA_DIR", "t-pot_data_analysis")
-BENIGN_FILE = os.path.join(DATA_DIR, "smartHomeSandbox", "sandbox", "dataset", "network_traffic.csv")
-MALICIOUS_FILE = os.path.join(DATA_DIR, "malicious_dataset", "network_traffic.csv")
-SCENARIOS_DIR = os.path.join(DATA_DIR, "smartHomeSandbox", "sandbox", "dataset", "data_scenarios")
-
-BENIGN_CONNECTION_FILE = os.path.join(DATA_DIR, "smartHomeSandbox", "sandbox", "dataset", "network_binary_connection.csv")
-BENIGN_BINARY_INFO_FILE = os.path.join(DATA_DIR, "smartHomeSandbox", "sandbox", "dataset", "binary_information.csv")
-MALICIOUS_CONNECTION_FILE = os.path.join(DATA_DIR, "malicious_dataset", "ip.csv")
-MALICIOUS_BINARY_INFO_FILE = os.path.join(DATA_DIR, "malicious_dataset", "binary_information.csv")
-
-"""
-One client per physical IoT device (baseline model). Grouped by folder name in 
-SCENARIOS_DIR (t-pot_data_analysis/smartHomeSandbox/sandbox/dataset/data_scenarios/),
-"idle" and "routine" are left out
-"""
-DEVICE_SCENARIOS = {
-    "laptop":         ["laptop_bridge_control", "laptop_light_control", "laptop_plug_control"],
-    "mobile":         ["mobile_bridge_control", 
-                       "mobile_camera_view", 
-                       "mobile_light_control", 
-                       "mobile_panel_call", 
-                       "mobile_plug_control", 
-                       "mobile_wifi_toggle"
-                      ],
-    "panel":          ["panel_bridge_control", 
-                       "panel_camera_view", 
-                       "panel_light_control", 
-                       "panel_plug_control", 
-                       "panel_power"
-                      ],
-    "hue_bridge":     ["bridge_power", "bridge_update", "hue_bridge_control"],
-    "hue_lamp":       ["hue_light_control", "connect_lamp", "lamp_power"],
-    "camera":         ["camera_power"],
-    "socket":         ["socket_connect", "socket_power"],
-    "ha_speaker":     ["HA_login_attempts", 
-                       "HA_update", 
-                       "ssh_login_attempts", 
-                       "speaker_power", 
-                       "speaker_voice_query"
-                      ], # Home Assisstant and voice assisst are on one device
-    "diy_hue":        ["diyHue_login_attempts"],
-    "motion_sensor":  ["sensor_automation_trigger"]
-}
-DEVICE_NAMES = list(DEVICE_SCENARIOS.keys())  # partition_id -> device name
-
-rng = np.random.default_rng(seed=42)
-
-# binary_information.csv columns split into the ones that are already numeric vs. the ones that need a text hash.
-BINFO_NUMERIC_COLS = [
-    "count",
-    "obfuscation_Size(Bytes)",
-    "obfuscation_Strings",
-    "obfuscation_Strings_per_kB",
-    "obfuscation_Entropy"
-]
-
-# Columns from binary_information.csv excluded as features
-BINFO_EXCLUDED_COLS = [
-    "c2_ports",
-    "anti_forensic",
-    "anti_debugging",
-    "anti_sandbox",
-    "malware_name"
-]
-BINFO_TEXT_COLS = [
-    "file_type",
-    "cpu_arch",
-    "linkage",
-    "persistence"
-]
-
-FEATURES = (
-    ["count", "url"]
-    + [f"binfo_{c}" for c in BINFO_NUMERIC_COLS]
-    + [f"binfo_{c}" for c in BINFO_TEXT_COLS]
-)
-INPUT_DIM = len(FEATURES)
+import constants
 
 def url_hash(value) -> int:
     digest = hashlib.md5(str(value).encode("utf-8")).hexdigest()
@@ -122,10 +46,10 @@ def _load_binary_info_by_src_ip(connection_file: str, binary_info_file: str, mal
     per_sha = {}
     for _, row in info.iterrows():
         values = {}
-        for c in BINFO_NUMERIC_COLS:
+        for c in constants.BINFO_NUMERIC_COLS:
             v = pd.to_numeric(row[c], errors="coerce")
             values[f"binfo_{c}"] = 0.0 if pd.isna(v) else float(v)
-        for c in BINFO_TEXT_COLS:
+        for c in constants.BINFO_TEXT_COLS:
             values[f"binfo_{c}"] = url_hash(row[c])
         per_sha[row["filename"]] = values
 
@@ -146,17 +70,17 @@ def create_features(df: pd.DataFrame, is_malicious: bool) -> pd.DataFrame:
     df["url"] = df["url"].apply(url_hash)
 
     if is_malicious:
-        lookup = _load_binary_info_by_src_ip(MALICIOUS_CONNECTION_FILE, MALICIOUS_BINARY_INFO_FILE, malicious_format=True)
+        lookup = _load_binary_info_by_src_ip(constants.MALICIOUS_CONNECTION_FILE, constants.MALICIOUS_BINARY_INFO_FILE, malicious_format=True)
     else:
-        lookup = _load_binary_info_by_src_ip(BENIGN_CONNECTION_FILE, BENIGN_BINARY_INFO_FILE, malicious_format=False)
+        lookup = _load_binary_info_by_src_ip(constants.BENIGN_CONNECTION_FILE, constants.BENIGN_BINARY_INFO_FILE, malicious_format=False)
 
-    binfo_cols = [f"binfo_{c}" for c in BINFO_NUMERIC_COLS + BINFO_TEXT_COLS]
+    binfo_cols = [f"binfo_{c}" for c in constants.BINFO_NUMERIC_COLS + constants.BINFO_TEXT_COLS]
     for col in binfo_cols:
         df[col] = df["src_ip"].apply(lambda ip: lookup.get(ip, {}).get(col, 0.0))
 
     df["target"] = 1 if is_malicious else 0
 
-    return df[FEATURES + ["target"]]
+    return df[constants.FEATURES + ["target"]]
 
 def scale_features(X: np.ndarray) -> np.ndarray:
 
@@ -166,9 +90,9 @@ def scale_features(X: np.ndarray) -> np.ndarray:
     X[:,idx["count"]] = X[:,idx["count"]] / 20.0
     X[:,idx["url"]] = X[:,idx["url"]] / 255.0
 
-    for c in BINFO_TEXT_COLS:
+    for c in constants.BINFO_TEXT_COLS:
         X[:,idx[f"binfo_{c}"]] = X[:,idx[f"binfo_{c}"]] / 255.0  # hashed -> [0,255]
-    for c in BINFO_NUMERIC_COLS:
+    for c in constants.BINFO_NUMERIC_COLS:
         col = idx[f"binfo_{c}"]
         X[:,col] = np.log1p(np.clip(X[:,col], 0, None)) / 20.0
 
@@ -194,7 +118,7 @@ def partition(df: pd.DataFrame, partition_id: int, num_partitions: int) -> pd.Da
 
 def build_splits(benign: pd.DataFrame, malicious: pd.DataFrame):
 
-    benign_train, benign_test = train_test_split( benign, test_size=0.2, random_state=42)
+    benign_train, benign_test = train_test_split(benign, test_size=0.2, random_state=42)
     benign_train_ae, benign_val_ae = train_test_split( benign_train, test_size=0.2, random_state=42)
     benign_train_ae, benign_for_classifier = train_test_split( benign_train_ae, test_size=0.2, random_state=42)
 
@@ -203,23 +127,23 @@ def build_splits(benign: pd.DataFrame, malicious: pd.DataFrame):
     else:
         mal_train, mal_test = malicious, malicious # too few malicious samples
 
-    X_train = scale_features(benign_train_ae[FEATURES].to_numpy())
+    X_train = scale_features(benign_train_ae[constants.FEATURES].to_numpy())
 
-    X_Validation = scale_features(benign_val_ae[FEATURES].to_numpy())
+    X_Validation = scale_features(benign_val_ae[constants.FEATURES].to_numpy())
 
-    X_train_classifier = scale_features(pd.concat([benign_for_classifier, mal_train], ignore_index=True)[FEATURES].to_numpy())
+    X_train_classifier = scale_features(pd.concat([benign_for_classifier, mal_train], ignore_index=True)[constants.FEATURES].to_numpy())
 
     y_class = np.concatenate( [np.zeros(len(benign_for_classifier)), np.ones(len(mal_train))])
 
     #X_test_full = scale_features(pd.concat([benign_test, mal_test], ignore_index=True)[FEATURES].to_numpy())
-    X_benign_test = scale_features(benign_test[FEATURES].to_numpy())
-    X_malicious_test = scale_features(mal_test[FEATURES].to_numpy())
+    X_benign_test = scale_features(benign_test[constants.FEATURES].to_numpy())
+    X_malicious_test = scale_features(mal_test[constants.FEATURES].to_numpy())
 
     y_true = np.concatenate([np.zeros(len(benign_test)), np.ones(len(mal_test))])
 
-    trainloader = DataLoader( TensorDataset(torch.FloatTensor(X_train)), batch_size=64, shuffle=True)
+    trainloader = DataLoader(TensorDataset(torch.FloatTensor(X_train)), batch_size=64, shuffle=True)
 
-    validaton_loader = DataLoader( TensorDataset(torch.FloatTensor(X_Validation)), batch_size=64, shuffle=True)
+    validaton_loader = DataLoader(TensorDataset(torch.FloatTensor(X_Validation)), batch_size=64, shuffle=True)
 
     #return trainloader, validaton_loader, X_test_full, X_Validation, y_true, X_train_classifier, y_class
     return (
@@ -239,16 +163,16 @@ def load_mono_dataset(partition_id: int, num_partitions: int):
 
 def load_device_dataset(partition_id: int):
 
-    device_name = DEVICE_NAMES[partition_id]
-    scenario_names = DEVICE_SCENARIOS[device_name]
+    device_name = constants.DEVICE_NAMES[partition_id]
+    scenario_names = constants.DEVICE_SCENARIOS[device_name]
 
     dfs = []
     for scenario in scenario_names:
-        path = os.path.join(SCENARIOS_DIR, scenario, "network_traffic.csv")
+        path = os.path.join(constants.SCENARIOS_DIR, scenario, "network_traffic.csv")
         dfs.append(pd.read_csv(path))
     benign_raw = pd.concat(dfs, ignore_index=True)
 
-    malicious_raw = pd.read_csv(MALICIOUS_FILE)
+    malicious_raw = pd.read_csv(constants.MALICIOUS_FILE)
 
     benign = create_features(benign_raw, is_malicious=False).drop(columns=["target"]).reset_index(drop=True)
     malicious = create_features(malicious_raw, is_malicious=True).drop(columns=["target"]).reset_index(drop=True)

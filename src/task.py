@@ -23,6 +23,9 @@ from sklearn.tree import DecisionTreeClassifier, plot_tree
 
 # from src.dataset_load import load_centralized_dataset,load_crossdataset, INPUT-DIM # original IoTID20/CiC-BoTIoT
 from src.dataset_load_tpot import load_centralized_dataset, INPUT_DIM # T-Pot dataset
+from src.evaluation_metrics import EvaluationMetrics
+
+ids_eval = EvaluationMetrics()
 
 class Autoencoder(nn.Module):
     def __init__(self, input_dim,dropout_rate=0.4): 
@@ -63,7 +66,7 @@ class Autoencoder(nn.Module):
 def train(net, trainloader, validaton_loader,partition_id, epochs, lr,mu ,device):
     """Train the model on the training set."""
 
-    print_memory_usage()
+    ids_eval.print_memory_usage()
 
     net.to(device)
 
@@ -129,7 +132,7 @@ def train(net, trainloader, validaton_loader,partition_id, epochs, lr,mu ,device
             print(f'Train Loss: {avg_train_loss:.6f} | Val Loss: {avg_val_loss:.6f}')
             break
 
-    print_memory_usage()  
+    ids_eval.print_memory_usage()  
      
     avg_trainloss = train_loss/len(trainloader)
     avg_valloss = val_loss / len(validaton_loader)
@@ -140,7 +143,7 @@ def train(net, trainloader, validaton_loader,partition_id, epochs, lr,mu ,device
 def test(net, X_benign_test, X_malicious_test, X_Validation,partition_id, device, X_train_dt, y_dt): #remove this for no dt
     """Validate the model on the test set."""
 
-    print_memory_usage()
+    ids_eval.print_memory_usage()
     net.eval()
     print("testing device", partition_id)
     net.to(device)
@@ -225,7 +228,7 @@ def test(net, X_benign_test, X_malicious_test, X_Validation,partition_id, device
     y_pred_benign_percentile = (errors_benign > threshold_percentile).astype(int)
     y_pred_malicious_percentile = (errors_malicious > threshold_percentile).astype(int)
 
-    print_memory_usage()
+    ids_eval.print_memory_usage()
 
     X_train_int16 = np.clip(X_features, -32768, 32767).astype(np.int16) # remove this for no dt
     dt_tinyml.fit(X_train_int16, y_dt) # remove this for no dt
@@ -422,8 +425,8 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
     fnrdt = cm_dt[1][0] / (cm_dt[1][1] + cm_dt[1][0]) #remove this for no dt
     
     # calculate intrusion detection capability
-    idc_dt = intrusion_detection_capability(y_true, y_pred) #remove this for no dt
-    idc_percentile = intrusion_detection_capability(y_true, y_pred_percentile)
+    idc_dt = ids_eval.intrusion_detection_capability(y_true, y_pred) #remove this for no dt
+    idc_percentile = ids_eval.intrusion_detection_capability(y_true, y_pred_percentile)
 
     print("Intrusion Detection Capability:", "DT", idc_dt, "percentile", idc_percentile)
     
@@ -469,9 +472,7 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
     testing_time = end_time - start_time
     print(testing_time)
 
-    # Construct and return reply Message
-    # Return the evaluation metrics
-    return MetricRecord({
+    metrics = {
         #"threshold": float(threshold_ae),
         "FPR AE": float("{:.4f}".format(fprpercentile)),
         "FNR AE": float("{:.4f}".format(fnrpercentile)),
@@ -494,60 +495,8 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
         "Accuracy AE": float("{:.4f}".format(acc_ae)),
         "Accuracy DT": float("{:.4f}".format(acc_dt)),  #remove this for no dt
         #"time": float(("{:.4f}".format(testing_time)))
-    })
-    
-def intrusion_detection_capability(y_true, y_pred):
-    
-    cm = confusion_matrix(y_true, y_pred)
-    tn, fp, fn, tp = cm.ravel()
-    print("TN", tn, "FP", fp,"FN", fn,"TP", tp)
-    N = tp + tn + fp + fn
+    }
 
-    # probabilities
-    p_tp = tp / N
-    p_tn = tn / N
-    p_fp = fp / N
-    p_fn = fn / N
-
-    p_attack = (tp + fn) / N
-    p_normal = (tn + fp) / N
-
-    p_pred_attack = (tp + fp) / N
-    p_pred_normal = (tn + fn) / N
-
-    # Mutual Information
-    terms = []
-
-    if p_tp > 0:
-        terms.append(p_tp * np.log2(p_tp / (p_attack * p_pred_attack)))
-
-    if p_fn > 0:
-        terms.append(p_fn * np.log2(p_fn / (p_attack * p_pred_normal)))
-
-    if p_fp > 0:
-        terms.append(p_fp * np.log2(p_fp / (p_normal * p_pred_attack)))
-
-    if p_tn > 0:
-        terms.append(p_tn * np.log2(p_tn / (p_normal * p_pred_normal)))
-
-    mutual_information = sum(terms)
-
-    # Entropy of actual classes
-    Hx = 0
-    if p_attack > 0:
-        Hx -= p_attack * np.log2(p_attack)
-    if p_normal > 0:
-        Hx -= p_normal * np.log2(p_normal)
-
-    # IDC
-    IDC = mutual_information / Hx if Hx != 0 else 0
-
-    return IDC
-
-def print_memory_usage():
-
-    process = psutil.Process(os.getpid())
-
-    # Convert bytes to Megabytes
-    mem_mb = process.memory_info().rss / (1024 * 1024)
-    print(f"Current RAM usage: {mem_mb:.2f} MB")
+    # Construct and return reply Message
+    # Return the evaluation metrics
+    return MetricRecord(metrics)

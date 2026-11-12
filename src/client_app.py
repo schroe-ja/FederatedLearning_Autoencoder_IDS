@@ -176,8 +176,8 @@ def evaluate(msg: Message, context: Context):
     pr_precision = precision_score(y_true, y_pred, zero_division=0)
 
     print(f"Device {partition} ({DEVICE_NAMES[partition]}) ROC AUC DT",b, "ROC AUC Error", c)
-    print(f"Device {partition} ({DEVICE_NAMES[partition]}) Fprpercentile",float("{:.2f}".format(fprpercentile)),"Fnrpercentile",float("{:.2f}".format(fnrpercentile)),"FPR DT",
-          float("{:.2f}".format(fprdt)),"FNR DT",float("{:.2f}".format(fnrdt))) #remove this for no dt
+    print(f"Device {partition} ({DEVICE_NAMES[partition]}) Fprpercentile", float("{:.2f}".format(fprpercentile)), "Fnrpercentile",float("{:.2f}".format(fnrpercentile)), "FPR DT",
+          float("{:.2f}".format(fprdt)), "FNR DT", float("{:.2f}".format(fnrdt))) #remove this for no dt
 
     end_time = time.time()
     testing_time = end_time - start_time

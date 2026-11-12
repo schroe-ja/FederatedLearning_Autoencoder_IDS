@@ -4,6 +4,7 @@ t-pot_data_analysis/
 
 # TinyML model 
 tree_model.h
+final_model.pt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
