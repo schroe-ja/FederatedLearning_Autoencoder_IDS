@@ -6,6 +6,7 @@ A TinyFL model to show a process on how to transfer an ML based IDS from a sandb
 - [TinyFL Model: ML Based IDS for IoT Botnet Detection](#tinyfl-model-ml-based-ids-for-iot-botnet-detection)
   - [Deploying the Model on PC / Singular Device](#deploying-the-model-on-pc--singular-device)
   - [Deploying the Model on Embedded Devices (Raspberry Pis etc.)](#deploying-the-model-on-embedded-devices-raspberry-pis-etc)
+    - [Required Dataset Structure](#required-dataset-structure)
     - [Launching the Flower SuperLink](#launching-the-flower-superlink)
     - [Connecting Flower SuperNodes](#connecting-flower-supernodes)
     - [Run the Flower App](#run-the-flower-app)
@@ -23,10 +24,96 @@ Go to the Folder `Python_FL_Model` and follow the `README`
 Follow this Tutorial [Embedded Devices](https://github.com/adap/flower/tree/main/examples/embedded-devices). 
 Instead of cloning their example use mine.
 
+### Required Dataset Structure
+
+```
+t-pot_data_analysis
+├── malicious_dataset
+│   ├── binary_information.csv
+│   ├── commands.csv
+│   ├── login_attempts.csv
+│   ├── network_binary_connection.csv
+│   └── network_traffic.csv
+└── smartHomeSandbox
+    └── sandbox
+        └── dataset
+            ├── binary_information.csv
+            ├── commands.csv
+            ├── data_scenarios
+            │   ├── bridge_power
+            │   │   └── network_traffic.csv
+            │   ├── bridge_update
+            │   │   └── network_traffic.csv
+            │   ├── camera_power
+            │   │   └── network_traffic.csv
+            │   ├── connect_lamp
+            │   │   └── network_traffic.csv
+            │   ├── diyHue_login_attempts
+            │   │   └── network_traffic.csv
+            │   ├── HA_login_attempts
+            │   │   └── network_traffic.csv
+            │   ├── HA_update
+            │   │   └── network_traffic.csv
+            │   ├── hue_bridge_control
+            │   │   └── network_traffic.csv
+            │   ├── hue_light_control
+            │   │   └── network_traffic.csv
+            │   ├── idle
+            │   │   └── network_traffic.csv
+            │   ├── lamp_power
+            │   │   └── network_traffic.csv
+            │   ├── laptop_bridge_control
+            │   │   └── network_traffic.csv
+            │   ├── laptop_light_control
+            │   │   └── network_traffic.csv
+            │   ├── laptop_plug_control
+            │   │   └── network_traffic.csv
+            │   ├── mobile_bridge_control
+            │   │   └── network_traffic.csv
+            │   ├── mobile_camera_view
+            │   │   └── network_traffic.csv
+            │   ├── mobile_light_control
+            │   │   └── network_traffic.csv
+            │   ├── mobile_panel_call
+            │   │   └── network_traffic.csv
+            │   ├── mobile_plug_control
+            │   │   └── network_traffic.csv
+            │   ├── mobile_wifi_toggle
+            │   │   └── network_traffic.csv
+            │   ├── panel_bridge_control
+            │   │   └── network_traffic.csv
+            │   ├── panel_camera_view
+            │   │   └── network_traffic.csv
+            │   ├── panel_light_control
+            │   │   └── network_traffic.csv
+            │   ├── panel_plug_control
+            │   │   └── network_traffic.csv
+            │   ├── panel_power
+            │   │   └── network_traffic.csv
+            │   ├── routine
+            │   │   └── network_traffic.csv
+            │   ├── sensor_automation_trigger
+            │   │   └── network_traffic.csv
+            │   ├── socket_connect
+            │   │   └── network_traffic.csv
+            │   ├── socket_power
+            │   │   └── network_traffic.csv
+            │   ├── speaker_power
+            │   │   └── network_traffic.csv
+            │   ├── speaker_voice_query
+            │   │   └── network_traffic.csv
+            │   └── ssh_login_attempts
+            │       └── network_traffic.csv
+            ├── login_attempts.csv
+            ├── network_binary_connection.csv
+            └── network_traffic.csv
+```
+
 ### Launching the Flower SuperLink
 
 On your development machine, launch the `SuperLink`. You will connnect Flower `SuperNodes` to it in the next step.
 ```bash
+export TPOT_DATA_DIR="/path/to/t-pot_data_analysis"
 flower-superlink --insecure
 ```
 ### Connecting Flower SuperNodes

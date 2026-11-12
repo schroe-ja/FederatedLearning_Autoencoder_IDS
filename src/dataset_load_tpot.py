@@ -17,11 +17,45 @@ BENIGN_FILE = os.path.join(DATA_DIR, "smartHomeSandbox", "sandbox", "dataset", "
 MALICIOUS_FILE = os.path.join(DATA_DIR, "malicious_dataset", "network_traffic.csv")
 SCENARIOS_DIR = os.path.join(DATA_DIR, "smartHomeSandbox", "sandbox", "dataset", "data_scenarios")
 
-
 BENIGN_CONNECTION_FILE = os.path.join(DATA_DIR, "smartHomeSandbox", "sandbox", "dataset", "network_binary_connection.csv")
 BENIGN_BINARY_INFO_FILE = os.path.join(DATA_DIR, "smartHomeSandbox", "sandbox", "dataset", "binary_information.csv")
 MALICIOUS_CONNECTION_FILE = os.path.join(DATA_DIR, "malicious_dataset", "ip.csv")
 MALICIOUS_BINARY_INFO_FILE = os.path.join(DATA_DIR, "malicious_dataset", "binary_information.csv")
+
+"""
+One client per physical IoT device (baseline model). Grouped by folder name in 
+SCENARIOS_DIR (t-pot_data_analysis/smartHomeSandbox/sandbox/dataset/data_scenarios/),
+"idle" and "routine" are left out
+"""
+DEVICE_SCENARIOS = {
+    "laptop":         ["laptop_bridge_control", "laptop_light_control", "laptop_plug_control"],
+    "mobile":         ["mobile_bridge_control", 
+                       "mobile_camera_view", 
+                       "mobile_light_control", 
+                       "mobile_panel_call", 
+                       "mobile_plug_control", 
+                       "mobile_wifi_toggle"
+                      ],
+    "panel":          ["panel_bridge_control", 
+                       "panel_camera_view", 
+                       "panel_light_control", 
+                       "panel_plug_control", 
+                       "panel_power"
+                      ],
+    "hue_bridge":     ["bridge_power", "bridge_update", "hue_bridge_control"],
+    "hue_lamp":       ["hue_light_control", "connect_lamp", "lamp_power"],
+    "camera":         ["camera_power"],
+    "socket":         ["socket_connect", "socket_power"],
+    "ha_speaker":     ["HA_login_attempts", 
+                       "HA_update", 
+                       "ssh_login_attempts", 
+                       "speaker_power", 
+                       "speaker_voice_query"
+                      ], # Home Assisstant and voice assisst are on one device
+    "diy_hue":        ["diyHue_login_attempts"],
+    "motion_sensor":  ["sensor_automation_trigger"]
+}
+DEVICE_NAMES = list(DEVICE_SCENARIOS.keys())  # partition_id -> device name
 
 rng = np.random.default_rng(seed=42)
 
@@ -31,7 +65,7 @@ BINFO_NUMERIC_COLS = [
     "obfuscation_Size(Bytes)",
     "obfuscation_Strings",
     "obfuscation_Strings_per_kB",
-    "obfuscation_Entropy",
+    "obfuscation_Entropy"
 ]
 
 # Columns from binary_information.csv excluded as features
@@ -40,15 +74,14 @@ BINFO_EXCLUDED_COLS = [
     "anti_forensic",
     "anti_debugging",
     "anti_sandbox",
-    "malware_name",
+    "malware_name"
 ]
 BINFO_TEXT_COLS = [
     "file_type",
     "cpu_arch",
     "linkage",
-    "persistence",
+    "persistence"
 ]
-
 
 FEATURES = (
     ["count", "url"]
@@ -79,6 +112,7 @@ def _load_binary_info_by_src_ip(connection_file: str, binary_info_file: str, mal
             return parts
 
         parts = info[combined_col].apply(_split_obfuscation)
+
         info["obfuscation_Size(Bytes)"] = parts.apply(lambda p: p[0])
         info["obfuscation_Strings"] = parts.apply(lambda p: p[1])
         info["obfuscation_Strings_per_kB"] = parts.apply(lambda p: p[2])
@@ -120,26 +154,25 @@ def create_features(df: pd.DataFrame, is_malicious: bool) -> pd.DataFrame:
     for col in binfo_cols:
         df[col] = df["src_ip"].apply(lambda ip: lookup.get(ip, {}).get(col, 0.0))
 
-
     df["target"] = 1 if is_malicious else 0
 
     return df[FEATURES + ["target"]]
 
 def scale_features(X: np.ndarray) -> np.ndarray:
+
     X = X.astype(np.float32).copy()
     idx = {name: i for i, name in enumerate(FEATURES)}
 
-    X[: , idx["count"]] = X[: , idx["count"]] / 20.0
-    X[: , idx["url"]] = X[: , idx["url"]] / 255.0
+    X[:,idx["count"]] = X[:,idx["count"]] / 20.0
+    X[:,idx["url"]] = X[:,idx["url"]] / 255.0
+
     for c in BINFO_TEXT_COLS:
-        X[: , idx[f"binfo_{c}"]] = X[: , idx[f"binfo_{c}"]] / 255.0  # hashed -> [0,255]
+        X[:,idx[f"binfo_{c}"]] = X[:,idx[f"binfo_{c}"]] / 255.0  # hashed -> [0,255]
     for c in BINFO_NUMERIC_COLS:
         col = idx[f"binfo_{c}"]
-        X[: , col] = np.log1p(np.clip(X[: , col], 0, None)) / 20.0
+        X[:,col] = np.log1p(np.clip(X[:,col], 0, None)) / 20.0
 
     return X
-
-
 
 # Loading the data and building splits
 def load_raw() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -153,8 +186,10 @@ def load_raw() -> tuple[pd.DataFrame, pd.DataFrame]:
     return benign, malicious
 
 def partition(df: pd.DataFrame, partition_id: int, num_partitions: int) -> pd.DataFrame:
+
     shuffled = df.sample(frac=1, random_state=42).reset_index(drop=True)
     shard_indices = np.array_split(np.arange(len(shuffled)), num_partitions)
+
     return shuffled.iloc[shard_indices[partition_id]].reset_index(drop=True)
 
 def build_splits(benign: pd.DataFrame, malicious: pd.DataFrame):
@@ -176,7 +211,9 @@ def build_splits(benign: pd.DataFrame, malicious: pd.DataFrame):
 
     y_class = np.concatenate( [np.zeros(len(benign_for_classifier)), np.ones(len(mal_train))])
 
-    X_test_full = scale_features(pd.concat([benign_test, mal_test], ignore_index=True)[FEATURES].to_numpy())
+    #X_test_full = scale_features(pd.concat([benign_test, mal_test], ignore_index=True)[FEATURES].to_numpy())
+    X_benign_test = scale_features(benign_test[FEATURES].to_numpy())
+    X_malicious_test = scale_features(mal_test[FEATURES].to_numpy())
 
     y_true = np.concatenate([np.zeros(len(benign_test)), np.ones(len(mal_test))])
 
@@ -184,33 +221,21 @@ def build_splits(benign: pd.DataFrame, malicious: pd.DataFrame):
 
     validaton_loader = DataLoader( TensorDataset(torch.FloatTensor(X_Validation)), batch_size=64, shuffle=True)
 
-    return trainloader, validaton_loader, X_test_full, X_Validation, y_true, X_train_classifier, y_class
-
-
-
+    #return trainloader, validaton_loader, X_test_full, X_Validation, y_true, X_train_classifier, y_class
+    return (
+        trainloader, validaton_loader,
+        X_benign_test, X_malicious_test, X_Validation,
+        X_train_classifier, y_class
+    )
 
 def load_mono_dataset(partition_id: int, num_partitions: int):
 
     benign, malicious = load_raw()
+
     benign_part = partition(benign, partition_id, num_partitions)
     malicious_part = partition(malicious, partition_id, num_partitions)
-    return build_splits(benign_part, malicious_part)
 
-# One client per physical IoT device. Grouped by folder name in SCENARIOS_DIR (t-pot_data_analysis/smartHomeSandbox/sandbox/dataset/data_scenarios/),
-# "idle" and "routine" are left out
-DEVICE_SCENARIOS = {
-    "laptop":         ["laptop_bridge_control", "laptop_light_control", "laptop_plug_control"],
-    "mobile":         ["mobile_bridge_control", "mobile_camera_view", "mobile_light_control", "mobile_panel_call", "mobile_plug_control", "mobile_wifi_toggle"],
-    "panel":          ["panel_bridge_control", "panel_camera_view", "panel_light_control", "panel_plug_control", "panel_power"],
-    "bridge":         ["bridge_power", "bridge_update"],
-    "hue":            ["hue_bridge_control", "hue_light_control", "diyHue_login_attempts"],
-    "camera":         ["camera_power"],
-    "lamp":           ["connect_lamp", "lamp_power"],
-    "socket":         ["socket_connect", "socket_power"],
-    "speaker":        ["speaker_power", "speaker_voice_query"],
-    "home_assistant": ["HA_login_attempts", "HA_update", "ssh_login_attempts", "sensor_automation_trigger"],
-}
-DEVICE_NAMES = list(DEVICE_SCENARIOS.keys())  # partition_id -> device name
+    return build_splits(benign_part, malicious_part)
 
 def load_device_dataset(partition_id: int):
 
@@ -231,8 +256,4 @@ def load_device_dataset(partition_id: int):
     return build_splits(benign, malicious)
 
 def load_centralized_dataset():
-    benign, malicious = load_raw()
-    trainloader, validaton_loader, X_test_full,X_Validation, y_true, X_train_classifier, y_class = (
-        build_splits(benign, malicious)
-    )
-    return trainloader, validaton_loader, X_test_full, X_Validation, y_true, X_train_classifier, y_class
+    return build_splits(*load_raw())

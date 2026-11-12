@@ -1,6 +1,9 @@
 # Datasets
 *.csv
-Datasets/
+t-pot_data_analysis/
+
+# TinyML model 
+tree_model.h
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

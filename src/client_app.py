@@ -1,6 +1,7 @@
 """if-and-auto: A Flower / PyTorch app."""
 
 import time
+import numpy as np
 
 from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
@@ -93,35 +94,82 @@ def evaluate(msg: Message, context: Context):
 
     #_,_,X_test_full, X_test_validation, y_true,X_train_dt,y_dt = load_mono_dataset(partition, num_partitions,which_dataset=which_dataset)
     #_,_,X_test_full, X_test_validation, y_true,X_train_dt,y_dt = load_cross_data(partition, num_partitions, which_dataset=which_dataset)
-    _, _, X_test_full, X_test_validation, y_true, X_train_dt, y_dt = load_device_dataset(partition)
+    (
+        _trainloader,
+        _validation_loader,
+        X_benign_test,
+        X_malicious_test,
+        X_test_validation,
+        X_train_dt,
+        y_dt,
+    ) = load_device_dataset(partition)
 
-    # Call the evaluation function
-    threshold, y_pred_percentile, errors_full, errors_val, y_pred, y_proba, _, _ = test_fn(
-        model, # Autoencoder
-        X_test_full, X_test_validation, # Data for Testing
-        partition, # Partition ID
+    # Pass the two test sets separately; don't split them by y_true.
+    (
+        threshold,
+        errors_val,
+        errors_benign,
+        errors_malicious,
+        y_pred_benign_ae,
+        y_pred_malicious_ae,
+        y_pred_benign_dt,
+        y_proba_benign_dt,
+        y_pred_malicious_dt,
+        y_proba_malicious_dt,
+        dt,
+        dt_tinyml,
+    ) = test_fn(
+        model,
+        X_benign_test,
+        X_malicious_test,
+        X_test_validation,
+        partition,
         device,
-        X_train_dt,y_dt # Data for Decision Tree; remove this for no dt
+        X_train_dt,
+        y_dt,
     )
+
+    # Labels and predictions use benign-then-malicious order.
+    y_true = np.concatenate([
+        np.zeros(len(X_benign_test), dtype=int),
+        np.ones(len(X_malicious_test), dtype=int),
+    ])
+
+    y_pred_percentile = np.concatenate([
+        np.asarray(y_pred_benign_ae).ravel(),
+        np.asarray(y_pred_malicious_ae).ravel(),
+    ])
+    y_pred = np.concatenate([
+        np.asarray(y_pred_benign_dt).ravel(),
+        np.asarray(y_pred_malicious_dt).ravel(),
+    ])
+    y_proba = np.concatenate([
+        np.asarray(y_proba_benign_dt).ravel(),
+        np.asarray(y_proba_malicious_dt).ravel(),
+    ])
+    errors_full = np.concatenate([
+        np.asarray(errors_benign).ravel(),
+        np.asarray(errors_malicious).ravel(),
+    ])
 
     # Metrics for Client Eval
     # Confusion matrix
     cmpercentile = confusion_matrix(y_true, y_pred_percentile)
-    cm_dt = confusion_matrix(y_true,y_pred) #remove this for no dt
+    cm_dt = confusion_matrix(y_true, y_pred) #remove this for no dt
 
     print(f"\nConfusion Matrix Classify and Device {partition} ({DEVICE_NAMES[partition]}):")
     print(cm_dt) #remove this for no dt
 
     # Use Confusion Matrix to calculate fnr and fpr for Percentile and DT
-    fprpercentile=cmpercentile[0][1]/ (cmpercentile[0][0]+cmpercentile[0][1])
-    fnrpercentile=cmpercentile[1][0]/ (cmpercentile[1][1]+cmpercentile[1][0])
+    fprpercentile = cmpercentile[0][1]/ (cmpercentile[0][0] + cmpercentile[0][1])
+    fnrpercentile = cmpercentile[1][0]/ (cmpercentile[1][1] + cmpercentile[1][0])
 
-    fprdt=cm_dt[0][1] / (cm_dt[0][0]+cm_dt[0][1]) #remove this for no dt
-    fnrdt=cm_dt[1][0] / (cm_dt[1][1]+cm_dt[1][0]) #remove this for no dt
+    fprdt = cm_dt[0][1] / (cm_dt[0][0] + cm_dt[0][1]) #remove this for no dt
+    fnrdt = cm_dt[1][0] / (cm_dt[1][1] + cm_dt[1][0]) #remove this for no dt
 
     #  ROC AUC for Percentile and DT
     b = roc_auc_score(y_true, y_proba) #remove this for no dt
-    c = roc_auc_score(y_true,errors_full)
+    c = roc_auc_score(y_true, errors_full)
 
     a = average_precision_score(y_true, y_proba)
     d = average_precision_score(y_true, errors_full)
