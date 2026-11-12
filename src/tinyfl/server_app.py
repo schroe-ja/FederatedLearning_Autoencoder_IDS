@@ -5,7 +5,7 @@ import torch
 from flwr.app import ArrayRecord, ConfigRecord, Context
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import FedAvg, FedProx
-from src.task import Autoencoder,global_evaluate
+from src.tinyfl.task import Autoencoder,global_evaluate
 
 # Create ServerApp
 app = ServerApp()

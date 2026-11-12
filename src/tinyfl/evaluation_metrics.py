@@ -2,7 +2,7 @@ import os
 
 import numpy as np
 import psutil
-from sklearn.metrics import confusion_matrixc
+from sklearn.metrics import confusion_matrix
 
 class EvaluationMetrics():
     def intrusion_detection_capability(self, y_true, y_pred):
@@ -60,10 +60,10 @@ class EvaluationMetrics():
 
         return IDC
 
-def print_memory_usage(self):
-
-    process = psutil.Process(os.getpid())
-
-    # Convert bytes to Megabytes
-    mem_mb = process.memory_info().rss / (1024 * 1024)
-    print(f"Current RAM usage: {mem_mb:.2f} MB")
+    def print_memory_usage(self):
+    
+        process = psutil.Process(os.getpid())
+    
+        # Convert bytes to Megabytes
+        mem_mb = process.memory_info().rss / (1024 * 1024)
+        print(f"Current RAM usage: {mem_mb:.2f} MB")

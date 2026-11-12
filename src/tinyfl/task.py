@@ -22,8 +22,9 @@ from sklearn.metrics import classification_report, confusion_matrix, f1_score,ro
 from sklearn.tree import DecisionTreeClassifier, plot_tree
 
 # from src.dataset_load import load_centralized_dataset,load_crossdataset, INPUT-DIM # original IoTID20/CiC-BoTIoT
-from src.dataset_load_tpot import load_centralized_dataset, INPUT_DIM # T-Pot dataset
-from src.evaluation_metrics import EvaluationMetrics
+from src.tinyfl.dataset_load_tpot import load_centralized_dataset, load_binary_info_test
+from src.tinyfl import constants
+from src.tinyfl.evaluation_metrics import EvaluationMetrics
 
 ids_eval = EvaluationMetrics()
 
@@ -140,7 +141,7 @@ def train(net, trainloader, validaton_loader,partition_id, epochs, lr,mu ,device
 
     return avg_trainloss, avg_valloss    
 
-def test(net, X_benign_test, X_malicious_test, X_Validation,partition_id, device, X_train_dt, y_dt): #remove this for no dt
+def test(net, X_benign_test, X_malicious_test, X_iotpot_test, X_Validation,partition_id, device, X_train_dt, y_dt): #remove this for no dt
     """Validate the model on the test set."""
 
     ids_eval.print_memory_usage()
@@ -152,6 +153,7 @@ def test(net, X_benign_test, X_malicious_test, X_Validation,partition_id, device
         X_train_dt = torch.FloatTensor(X_train_dt).to(device) #remove this for no dt
         X_benign_test = torch.FloatTensor(X_benign_test).to(device)
         X_malicious_test = torch.FloatTensor(X_malicious_test).to(device)
+        X_iotpot_test = torch.as_tensor(X_iotpot_test, dtype=torch.float32, device=device)
         
         #encoding layer for classifier 
         X_train_encoded = net.encoder(X_train_dt).detach().numpy() #remove this for no dt
@@ -181,6 +183,15 @@ def test(net, X_benign_test, X_malicious_test, X_Validation,partition_id, device
             torch.square(X_malicious_test - recon_malicious), dim=1
         ).cpu().numpy()
         stats_malicious = np.std(X_malicious_test.cpu().numpy(), axis=1)
+
+        recon_iotpot = net(X_iotpot_test)
+        errors_iotpot = torch.mean(
+            torch.square(X_iotpot_test - recon_iotpot), dim=1
+        ).cpu().numpy()
+        stats_iotpot = X_iotpot_test.std(dim=1).cpu().numpy()
+
+        # .cpu() is needed if the model and tensors are on a GPU.
+        X_iotpot_encoded = net.encoder(X_iotpot_test).detach().cpu().numpy()
         
         mu_val = np.mean(errors_val) #remove this for no dt
         sigma_val = np.std(errors_val) + 1e-8  #remove this for no dt
@@ -213,6 +224,12 @@ def test(net, X_benign_test, X_malicious_test, X_Validation,partition_id, device
         errors_malicious_norm * 10000,
         stats_malicious * 10000
     ])  # remove this for no dt
+
+    X_features_iotpot = np.column_stack([
+        X_iotpot_encoded * 10000,
+        errors_iotpot * 10000,
+        stats_iotpot * 10000,
+    ])
     
     # DT fit and predict
     dt.fit(X_features, y_dt)  #remove this for no dt
@@ -227,6 +244,9 @@ def test(net, X_benign_test, X_malicious_test, X_Validation,partition_id, device
 
     y_pred_benign_percentile = (errors_benign > threshold_percentile).astype(int)
     y_pred_malicious_percentile = (errors_malicious > threshold_percentile).astype(int)
+    y_pred_iotpot_percentile = (errors_iotpot > threshold_percentile).astype(int)
+    y_pred_iotpot = dt.predict(X_features_iotpot)
+    y_proba_iotpot = dt.predict_proba(X_features_iotpot)[:, 1]
 
     ids_eval.print_memory_usage()
 
@@ -238,14 +258,18 @@ def test(net, X_benign_test, X_malicious_test, X_Validation,partition_id, device
         errors_val,
         errors_benign,
         errors_malicious,
+        errors_iotpot,
         y_pred_benign_percentile,
         y_pred_malicious_percentile,
+        y_pred_iotpot_percentile,
         y_pred_benign,
         y_proba_benign,
         y_pred_malicious,
         y_proba_malicious,
+        y_pred_iotpot,
+        y_proba_iotpot,
         dt,
-        dt_tinyml
+        dt_tinyml,
     ) # remove everything with dt for no dt
 
 def reconstruction_errors(net, X, device):
@@ -261,7 +285,7 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
     start_time = time.time()
 
     # Load the model and initialize it with the received weights
-    model = Autoencoder(INPUT_DIM)
+    model = Autoencoder(constants.INPUT_DIM)
 
     model.load_state_dict(arrays.to_torch_state_dict())
 
@@ -274,25 +298,32 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
     _, _, X_benign_test, X_malicious_test, X_Validation, X_train_dt, y_dt = load_centralized_dataset()
     # which_dataset 0 for Training BoTIoT -> Testing IoTID20; everything else for Training IoTID20 -> Testing BoTIoT just like client
     #_,_,X_test_full, X_test_validation, y_true,X_train_dt,y_dt = load_crossdataset(which_dataset = 1)  #remove everythin with dt for no dt
+    X_iotpot_test = load_binary_info_test(constants.IOTPOT_BINARY_INFO_FILE)
+    y_iotpot_test = np.ones(len(X_iotpot_test), dtype=np.int64)
 
     # Evaluate the global model on the test set
     (
-    threshold_ae,
-    errors_val,
-    errors_benign,
-    errors_malicious,
-    y_pred_benign_percentile,
-    y_pred_malicious_percentile,
-    y_pred_benign,
-    y_proba_benign,
-    y_pred_malicious,
-    y_proba_malicious,
-    dt,
-    dt_tinyml,
+        threshold_ae,
+        errors_val,
+        errors_benign,
+        errors_malicious,
+        errors_iotpot,
+        y_pred_benign_percentile,
+        y_pred_malicious_percentile,
+        y_pred_iotpot_percentile,
+        y_pred_benign,
+        y_proba_benign,
+        y_pred_malicious,
+        y_proba_malicious,
+        y_pred_iotpot,
+        y_proba_iotpot,
+        dt,
+        dt_tinyml
     ) = test(
         model,
         X_benign_test,
         X_malicious_test,
+        X_iotpot_test,
         X_Validation,
         1000,
         device,
@@ -361,6 +392,15 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
     benign_fp_dt = np.mean(y_pred[benign_mask] == 1)
     malicious_recall_dt = np.mean(y_pred[malicious_mask] == 1)
 
+    # IoTPOT contains only malicious samples, so report detection rate/recall.
+    y_iotpot_true = np.ones(len(X_iotpot_test), dtype=int)
+
+    y_pred_iotpot_ae = np.asarray(y_pred_iotpot_percentile).ravel().astype(int)
+    y_pred_iotpot_dt = np.asarray(y_pred_iotpot).ravel().astype(int)
+
+    iotpot_recall_ae = np.mean(y_pred_iotpot_ae == 1)
+    iotpot_recall_dt = np.mean(y_pred_iotpot_dt == 1)
+
     print(
         f"Benign test: {np.sum(y_pred_percentile[benign_mask] == 1)} / "
         f"{benign_mask.sum()} flagged "
@@ -380,6 +420,16 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
         f"Malicious test: {np.sum(y_pred[malicious_mask] == 1)} / "
         f"{malicious_mask.sum()} detected "
         f"({malicious_recall_dt:.2%} recall, DT)"
+    )
+    print(
+        f"IoTPOT malicious test: {y_pred_iotpot_ae.sum()} / "
+        f"{len(y_iotpot_true)} detected "
+        f"({iotpot_recall_ae:.2%} recall, AE)"
+    )
+    print(
+        f"IoTPOT malicious test: {y_pred_iotpot_dt.sum()} / "
+        f"{len(y_iotpot_true)} detected "
+        f"({iotpot_recall_dt:.2%} recall, DT)"
     )
 
     benign_errors = reconstruction_errors(model, X_benign_test, device)
@@ -495,6 +545,11 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
         "Accuracy AE": float("{:.4f}".format(acc_ae)),
         "Accuracy DT": float("{:.4f}".format(acc_dt)),  #remove this for no dt
         #"time": float(("{:.4f}".format(testing_time)))
+        "IoTPOT Recall AE": float(f"{iotpot_recall_ae:.4f}"),
+        "IoTPOT Recall DT": float(f"{iotpot_recall_dt:.4f}"),
+        "IoTPOT Detected AE": int(y_pred_iotpot_ae.sum()),
+        "IoTPOT Detected DT": int(y_pred_iotpot_dt.sum()),
+        "IoTPOT Samples": int(len(y_iotpot_true))
     }
 
     # Construct and return reply Message

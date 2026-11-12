@@ -35,8 +35,8 @@ publisher = "k"
 
 # Point to your ServerApp and ClientApp objects
 [tool.flwr.app.components]
-serverapp = "src.server_app:app"
-clientapp = "src.client_app:app"
+serverapp = "src.tinyfl.server_app:app"
+clientapp = "src.tinyfl.client_app:app"
 
 # Custom config values accessible via `context.run_config`
 [tool.flwr.app.config]
@@ -82,9 +82,9 @@ which_dataset = 0 #for which Dataset to train and test
 # # root-certificates = "<PATH/TO/ca.crt>"  # For TLS setup
 
 [superlink.embedded-federation]
-address = "<insert your IP>" # ControlAPI of your SUPERLINK
+address = "127.0.0.1" # ControlAPI of your SUPERLINK; change IP
 insecure = true
 
 [superlink.local-deployment]
-address = "<insert your IP>"
+address = "127.0.0.1" # Change IP
 insecure = true

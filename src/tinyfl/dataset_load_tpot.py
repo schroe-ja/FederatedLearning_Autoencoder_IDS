@@ -12,7 +12,7 @@ import numpy as np
 
 from sklearn.model_selection import train_test_split
 
-import constants
+from src.tinyfl import constants
 
 def url_hash(value) -> int:
     digest = hashlib.md5(str(value).encode("utf-8")).hexdigest()
@@ -60,6 +60,31 @@ def _load_binary_info_by_src_ip(connection_file: str, binary_info_file: str, mal
             lookup[device_ip] = per_sha[sha]
     return lookup
 
+# Load IOTPOT
+def load_binary_info_test(file: str) -> np.ndarray:
+    info = pd.read_csv(file)
+
+    # Handle the combined/malformed obfuscation column if present.
+    combined_cols = [c for c in info.columns if c.startswith("obfuscation[")]
+    if combined_cols:
+        parts = info[combined_cols[0]].apply(
+            lambda s: (str(s).split(",") + ["0"] * 4)[:4]
+        )
+        info["obfuscation_Size(Bytes)"] = parts.apply(lambda p: p[0])
+        info["obfuscation_Strings"] = parts.apply(lambda p: p[1])
+        info["obfuscation_Strings_per_kB"] = parts.apply(lambda p: p[2])
+        info["obfuscation_Entropy"] = parts.apply(lambda p: p[3])
+
+    X = pd.DataFrame(0.0, index=info.index, columns=constants.FEATURES)
+
+    for c in constants.BINFO_NUMERIC_COLS:
+        X[f"binfo_{c}"] = pd.to_numeric(info[c], errors="coerce").fillna(0.0)
+
+    for c in constants.BINFO_TEXT_COLS:
+        X[f"binfo_{c}"] = info[c].apply(url_hash)
+
+    return scale_features(X[constants.FEATURES].to_numpy())
+
 # Feature creation
 def create_features(df: pd.DataFrame, is_malicious: bool) -> pd.DataFrame:
 
@@ -85,7 +110,7 @@ def create_features(df: pd.DataFrame, is_malicious: bool) -> pd.DataFrame:
 def scale_features(X: np.ndarray) -> np.ndarray:
 
     X = X.astype(np.float32).copy()
-    idx = {name: i for i, name in enumerate(FEATURES)}
+    idx = {name: i for i, name in enumerate(constants.FEATURES)}
 
     X[:,idx["count"]] = X[:,idx["count"]] / 20.0
     X[:,idx["url"]] = X[:,idx["url"]] / 255.0
@@ -101,8 +126,8 @@ def scale_features(X: np.ndarray) -> np.ndarray:
 # Loading the data and building splits
 def load_raw() -> tuple[pd.DataFrame, pd.DataFrame]:
 
-    benign_raw = pd.read_csv(BENIGN_FILE)
-    malicious_raw = pd.read_csv(MALICIOUS_FILE)
+    benign_raw = pd.read_csv(constants.BENIGN_FILE)
+    malicious_raw = pd.read_csv(constants.MALICIOUS_FILE)
 
     benign = create_features(benign_raw, is_malicious=False).drop(columns=["target"]).reset_index(drop=True)
     malicious = create_features(malicious_raw, is_malicious=True).drop(columns=["target"]).reset_index(drop=True)

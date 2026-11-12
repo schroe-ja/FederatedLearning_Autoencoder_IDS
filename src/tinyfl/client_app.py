@@ -12,12 +12,13 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from sklearn.metrics import roc_auc_score, confusion_matrix, precision_recall_curve, roc_curve,auc, average_precision_score, classification_report, precision_score
 
-from src.task import Autoencoder
-from src.task import test as test_fn
-from src.task import train as train_fn
+from src.tinyfl.task import Autoencoder
+from src.tinyfl.task import test as test_fn
+from src.tinyfl.task import train as train_fn
+from src.tinyfl import constants
 
 # from src.dataset_load import load_cross_data, load_mono_dataset # original IoTID20/CiC-BoTIoT
-from src.dataset_load_tpot import load_device_dataset, DEVICE_NAMES # T-Pot dataset, one client per IoT device
+from src.tinyfl.dataset_load_tpot import load_device_dataset # T-Pot dataset, one client per IoT device
 
 torch.use_deterministic_algorithms(True)
 
@@ -157,7 +158,7 @@ def evaluate(msg: Message, context: Context):
     cmpercentile = confusion_matrix(y_true, y_pred_percentile)
     cm_dt = confusion_matrix(y_true, y_pred) #remove this for no dt
 
-    print(f"\nConfusion Matrix Classify and Device {partition} ({DEVICE_NAMES[partition]}):")
+    print(f"\nConfusion Matrix Classify and Device {partition} ({constants.DEVICE_NAMES[partition]}):")
     print(cm_dt) #remove this for no dt
 
     # Use Confusion Matrix to calculate fnr and fpr for Percentile and DT
@@ -175,8 +176,8 @@ def evaluate(msg: Message, context: Context):
     d = average_precision_score(y_true, errors_full)
     pr_precision = precision_score(y_true, y_pred, zero_division=0)
 
-    print(f"Device {partition} ({DEVICE_NAMES[partition]}) ROC AUC DT",b, "ROC AUC Error", c)
-    print(f"Device {partition} ({DEVICE_NAMES[partition]}) Fprpercentile", float("{:.2f}".format(fprpercentile)), "Fnrpercentile",float("{:.2f}".format(fnrpercentile)), "FPR DT",
+    print(f"Device {partition} ({constants.DEVICE_NAMES[partition]}) ROC AUC DT", b, "ROC AUC Error", c)
+    print(f"Device {partition} ({constants.DEVICE_NAMES[partition]}) Fprpercentile", float("{:.2f}".format(fprpercentile)), "Fnrpercentile", float("{:.2f}".format(fnrpercentile)), "FPR DT",
           float("{:.2f}".format(fprdt)), "FNR DT", float("{:.2f}".format(fnrdt))) #remove this for no dt
 
     end_time = time.time()
