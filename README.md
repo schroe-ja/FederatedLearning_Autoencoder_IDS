@@ -124,7 +124,7 @@ Now, launch your 'SuperNode'
 ```bash
 # Repeat for each embedded device (adjust SuperLink IP and partition-id)
 flower-supernode --insecure --superlink SuperLink_IP:9092 \
-  --node-config "partition-id=0 num-partitions=4 which_dataset=0"
+  --node-config 'partition-id=0 num-partitions=4 which_dataset="mobile"'
 ```
 Repeat for each embedded device that you want to connect to the `SuperLink`. Change partition-id if you want the Client to use different Data.
 
@@ -132,14 +132,15 @@ If you want to use SuperLink and SuperNode on PC with multiple Terminals launch 
 ```bash
 # Repeat for each embedded device (adjust SuperLink IP, Clientappio Port and partition-id)
 flower-supernode --insecure --superlink SuperLink_IP:9092 \
-  --clientappio-api-address 127.0.0.1:9097 \
-  --node-config "partition-id=0 num-partitions=4 which_dataset=0"
+  --host 127.0.0.1 --port 9097 \
+  --node-config 'partition-id=0 num-partitions=4 which_dataset="laptop"'
 ```
 Change the clientappio-api-address Port for each Client. Change partition-id if you want the Client to use different Data.
 
 ### Run the Flower App
 
 With both the long-running server (`SuperLink`) and two `SuperNodes` up and running, we can now start run. Let's first update the Flower Configuration file to add a new `SuperLink` connection.
+Any model configuration (i.e. server rounds) can be found in the `pyproject.toml`.
 
 Locate your Flower configuration file by running:
 ```bash

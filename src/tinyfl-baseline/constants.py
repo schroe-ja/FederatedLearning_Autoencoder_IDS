@@ -2,14 +2,22 @@ import os
 import numpy as np
 
 DATA_DIR = os.environ.get("TPOT_DATA_DIR", "t-pot_data_analysis")
-BENIGN_FILE = os.path.join(DATA_DIR, "smartHomeSandbox", "sandbox", "dataset", "network_traffic.csv")
-MALICIOUS_FILE = os.path.join(DATA_DIR, "malicious_dataset", "network_traffic.csv")
+#BENIGN_FILE = os.path.join(DATA_DIR, "smartHomeSandbox", "sandbox", "dataset", "network_traffic.csv")
+#MALICIOUS_FILE = os.path.join(DATA_DIR, "malicious_dataset", "network_traffic.csv")
+MALICIOUS_DATASET_DIR = os.path.join(DATA_DIR, "malicious_dataset")
 SCENARIOS_DIR = os.path.join(DATA_DIR, "smartHomeSandbox", "sandbox", "dataset", "data_scenarios")
 
 BENIGN_CONNECTION_FILE = os.path.join(DATA_DIR, "smartHomeSandbox", "sandbox", "dataset", "network_binary_connection.csv")
 BENIGN_BINARY_INFO_FILE = os.path.join(DATA_DIR, "smartHomeSandbox", "sandbox", "dataset", "binary_information.csv")
-MALICIOUS_CONNECTION_FILE = os.path.join(DATA_DIR, "malicious_dataset", "ip.csv")
+BENIGN_BINARY_COMMANDS_FILE = os.path.join(DATA_DIR, "smartHomeSandbox", "sandbox", "dataset", "commands.csv")
+BENIGN_NETWORK_TRAFFIC_FILE = os.path.join(DATA_DIR, "smartHomeSandbox", "sandbox", "dataset", "network_traffic.csv")
+BENIGN_LOGIN_ATTEMPTS_FILE = os.path.join(DATA_DIR, "smartHomeSandbox", "sandbox", "dataset", "login_attempts.csv")
+
+MALICIOUS_CONNECTION_FILE = os.path.join(DATA_DIR, "malicious_dataset", "network_binary_connection.csv")
 MALICIOUS_BINARY_INFO_FILE = os.path.join(DATA_DIR, "malicious_dataset", "binary_information.csv")
+MALICIOUS_COMMANDS_FILE = os.path.join(DATA_DIR, "malicious_dataset", "commands.csv")
+MALICIOUS_NETWORK_TRAFFIC_FILE = os.path.join(DATA_DIR, "malicious_dataset", "network_traffic.csv")
+MALICIOUS_LOGIN_ATTEMPTS_FILE = os.path.join(DATA_DIR, "malicious_dataset", "login_attempts.csv")
 
 IOTPOT_BINARY_INFO_FILE = os.path.join(DATA_DIR, "iotpot", "binary_information.csv")
 
@@ -74,9 +82,23 @@ BINFO_TEXT_COLS = [
     "persistence"
 ]
 
+EVENT_TYPES = {
+    "network_traffic": 1,
+    "binary_information": 2,
+    "command": 3,
+    "login_attempt": 4
+}
+
 FEATURES = (
     ["count", "url"]
     + [f"binfo_{c}" for c in BINFO_NUMERIC_COLS]
     + [f"binfo_{c}" for c in BINFO_TEXT_COLS]
+    + [
+        "command_hash",
+        "username_hash",
+        "protocol_hash",
+        "successful",
+        "event_type",
+    ]
 )
 INPUT_DIM = len(FEATURES)

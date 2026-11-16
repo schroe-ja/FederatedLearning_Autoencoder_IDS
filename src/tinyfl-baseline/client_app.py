@@ -18,12 +18,40 @@ from src.tinyfl.task import train as train_fn
 from src.tinyfl import constants
 
 # from src.dataset_load import load_cross_data, load_mono_dataset # original IoTID20/CiC-BoTIoT
-from src.tinyfl.dataset_load_tpot import load_device_dataset # T-Pot dataset, one client per IoT device
+from src.tinyfl.dataset_load_tpot import DatasetLoad # T-Pot dataset, one client per IoT device
 
 torch.use_deterministic_algorithms(True)
 
 # Flower ClientApp
 app = ClientApp()
+ld = DatasetLoad()
+
+def phase_recall(y_pred_malicious, phase_malicious_test, model_name):
+    y_pred = np.asarray(y_pred_malicious).ravel()
+    phases = np.asarray(phase_malicious_test).ravel()
+
+    if len(y_pred) != len(phases):
+        raise ValueError("Predictions and phase labels have different lengths")
+
+    results = {}
+
+    for phase in ["scan", "distribution"]:
+        mask = phases == phase
+
+        if not np.any(mask):
+            print(f"{model_name} - {phase}: no test samples")
+            continue
+
+        recall = float(np.mean(y_pred[mask] == 1))
+        results[phase] = recall
+
+        print(
+            f"{model_name} - {phase} detection rate: "
+            f"{recall:.2%} "
+            f"({np.sum(y_pred[mask] == 1)}/{np.sum(mask)})"
+        )
+
+    return results
 
 @app.train()
 def train(msg: Message, context: Context):
@@ -45,7 +73,7 @@ def train(msg: Message, context: Context):
     #which_dataset: int = context.run_config["which_dataset"]
 
     #trainloader, validaton_loader, _ ,_, _,_,_ = load_mono_dataset(partition, num_partitions,which_dataset=which_dataset)
-    trainloader, validaton_loader, _, _, _, _, _ = load_device_dataset(partition)
+    trainloader, validaton_loader, _, _, _, _, _, phase_malicious_test = ld.load_device_dataset(partition)
 
     # Call the training function
     train_loss, val_loss = train_fn(
@@ -103,7 +131,12 @@ def evaluate(msg: Message, context: Context):
         X_test_validation,
         X_train_dt,
         y_dt,
-    ) = load_device_dataset(partition)
+        phase_malicious_test,
+    ) = ld.load_device_dataset(partition)
+
+    X_iotpot_test = ld.load_binary_info_test(
+        constants.IOTPOT_BINARY_INFO_FILE
+    )
 
     # Pass the two test sets separately; don't split them by y_true.
     (
@@ -111,23 +144,40 @@ def evaluate(msg: Message, context: Context):
         errors_val,
         errors_benign,
         errors_malicious,
+        errors_iotpot,
         y_pred_benign_ae,
         y_pred_malicious_ae,
+        y_pred_iotpot_ae,
         y_pred_benign_dt,
         y_proba_benign_dt,
         y_pred_malicious_dt,
         y_proba_malicious_dt,
+        y_pred_iotpot_dt,
+        y_proba_iotpot_dt,
         dt,
-        dt_tinyml,
+        dt_tinyml
     ) = test_fn(
         model,
         X_benign_test,
         X_malicious_test,
+        X_iotpot_test,
         X_test_validation,
         partition,
         device,
         X_train_dt,
-        y_dt,
+        y_dt
+    )
+
+    phase_results_ae = phase_recall(
+        y_pred_malicious_ae,
+        phase_malicious_test,
+        "AE"
+    )
+
+    phase_results_dt = phase_recall(
+        y_pred_malicious_dt,
+        phase_malicious_test,
+        "AE + Decision Tree"
     )
 
     # Labels and predictions use benign-then-malicious order.
@@ -198,6 +248,11 @@ def evaluate(msg: Message, context: Context):
         "Precision":float(("{:.4f}".format(pr_precision))),
         "mttd": float("{:.4f}".format(testing_time)),  # New metric
         "num-examples": len(y_true),
+        "Scan Recall AE": phase_results_ae.get("scan", 0.0),
+        "Distribution Recall AE": phase_results_ae.get("distribution", 0.0),
+
+        "Scan Recall DT": phase_results_dt.get("scan", 0.0),
+        "Distribution Recall DT": phase_results_dt.get("distribution", 0.0),
     }
     metric_record = MetricRecord(metrics)
     content = RecordDict({"metrics": metric_record})

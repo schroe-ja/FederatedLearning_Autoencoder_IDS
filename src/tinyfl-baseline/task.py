@@ -22,40 +22,41 @@ from sklearn.metrics import classification_report, confusion_matrix, f1_score,ro
 from sklearn.tree import DecisionTreeClassifier, plot_tree
 
 # from src.dataset_load import load_centralized_dataset,load_crossdataset, INPUT-DIM # original IoTID20/CiC-BoTIoT
-from src.tinyfl.dataset_load_tpot import load_centralized_dataset, load_binary_info_test
+from src.tinyfl.dataset_load_tpot import DatasetLoad
 from src.tinyfl import constants
 from src.tinyfl.evaluation_metrics import EvaluationMetrics
 
 ids_eval = EvaluationMetrics()
+ld = DatasetLoad()
 
 class Autoencoder(nn.Module):
-    def __init__(self, input_dim,dropout_rate=0.4): 
+    def __init__(self, input_dim, dropout_rate=0.4): 
         super(Autoencoder, self).__init__()
         # Encoder: Compresses data
         self.encoder = nn.Sequential(
-            nn.Linear(input_dim, 48),
-            nn.BatchNorm1d(48),      # Helps training stability
+            nn.Linear(input_dim, 64),
+            nn.LayerNorm(64),      # Helps training stability
             nn.ReLU(),      
             
-            nn.Linear(48, 24),
-            nn.BatchNorm1d(24),
+            nn.Linear(64, 32),
+            nn.LayerNorm(32),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
             
-            nn.Linear(24, 6)         
+            nn.Linear(32, 12)         
         )
         
         # Decoder: Reconstructs data
         self.decoder = nn.Sequential(
-            nn.Linear(6, 24),
-            nn.BatchNorm1d(24),
+            nn.Linear(12, 32),
+            nn.LayerNorm(32),
             nn.ReLU(),
             
-            nn.Linear(24, 48),
-            nn.BatchNorm1d(48),
-            nn.ReLU(0.2),
+            nn.Linear(32, 64),
+            nn.LayerNorm(64),
+            nn.ReLU(),
             
-            nn.Linear(48, input_dim) 
+            nn.Linear(64, input_dim) 
         )
     
     def forward(self, x):
@@ -63,8 +64,67 @@ class Autoencoder(nn.Module):
         decoded = self.decoder(encoded)
         return decoded
 
+def phase_recall(y_pred_malicious, phase_malicious_test, model_name):
+    y_pred = np.asarray(y_pred_malicious).ravel()
+    phases = np.asarray(phase_malicious_test).ravel()
 
-def train(net, trainloader, validaton_loader,partition_id, epochs, lr,mu ,device):
+    if len(y_pred) != len(phases):
+        raise ValueError("Predictions and phase labels have different lengths")
+
+    results = {}
+
+    for phase in ["scan", "distribution"]:
+        mask = phases == phase
+
+        if not np.any(mask):
+            print(f"{model_name} - {phase}: no test samples")
+            continue
+
+        recall = float(np.mean(y_pred[mask] == 1))
+        results[phase] = recall
+
+        print(
+            f"{model_name} - {phase} detection rate: "
+            f"{recall:.2%} "
+            f"({np.sum(y_pred[mask] == 1)}/{np.sum(mask)})"
+        )
+
+    return results
+
+# weighted reconstruction loss
+def reconstruction_loss(outputs, inputs):
+    idx = {
+        name: i for i, name in enumerate(constants.FEATURES)
+    }
+
+    feature_weights = torch.ones(
+        inputs.shape[1],
+        device=inputs.device
+    )
+
+    # Give more importance to event-specific information
+    important_features = [
+        "url",
+        "command_hash",
+        "username_hash",
+        "protocol_hash",
+        "successful",
+    ]
+
+    for feature in important_features:
+        feature_weights[idx[feature]] = 2.0
+
+    for c in constants.BINFO_NUMERIC_COLS:
+        feature_weights[idx[f"binfo_{c}"]] = 2.0
+
+    for c in constants.BINFO_TEXT_COLS:
+        feature_weights[idx[f"binfo_{c}"]] = 2.0
+
+    loss = (outputs - inputs) ** 2
+
+    return (loss * feature_weights).mean()
+
+def train(net, trainloader, validaton_loader, partition_id, epochs, lr, mu ,device):
     """Train the model on the training set."""
 
     ids_eval.print_memory_usage()
@@ -73,7 +133,7 @@ def train(net, trainloader, validaton_loader,partition_id, epochs, lr,mu ,device
 
     global_params = [p.detach().clone() for p in net.parameters()]
     optimizer = torch.optim.AdamW(net.parameters(), lr=lr, weight_decay=0.05) # weight_decay L2 regularization
-    criterion = nn.MSELoss()
+    criterion = reconstruction_loss
 
     print("training device", partition_id)
 
@@ -141,7 +201,17 @@ def train(net, trainloader, validaton_loader,partition_id, epochs, lr,mu ,device
 
     return avg_trainloss, avg_valloss    
 
-def test(net, X_benign_test, X_malicious_test, X_iotpot_test, X_Validation,partition_id, device, X_train_dt, y_dt): #remove this for no dt
+def malicious_probability(model, X):
+    probabilities = model.predict_proba(X)
+
+    class_indices = np.where(model.classes_ == 1)[0]
+
+    if len(class_indices) == 0:
+        raise ValueError("Decision Tree was not trained with malicious samples.")
+
+    return probabilities[:, class_indices[0]]
+
+def test(net, X_benign_test, X_malicious_test, X_iotpot_test, X_Validation, partition_id, device, X_train_dt, y_dt): #remove this for no dt
     """Validate the model on the test set."""
 
     ids_eval.print_memory_usage()
@@ -156,7 +226,7 @@ def test(net, X_benign_test, X_malicious_test, X_iotpot_test, X_Validation,parti
         X_iotpot_test = torch.as_tensor(X_iotpot_test, dtype=torch.float32, device=device)
         
         #encoding layer for classifier 
-        X_train_encoded = net.encoder(X_train_dt).detach().numpy() #remove this for no dt
+        X_train_encoded = net.encoder(X_train_dt).detach().cpu().numpy() #remove this for no dt
         X_benign_encoded = net.encoder(X_benign_test).numpy()
         X_malicious_encoded = net.encoder(X_malicious_test).numpy()
         
@@ -234,19 +304,19 @@ def test(net, X_benign_test, X_malicious_test, X_iotpot_test, X_Validation,parti
     # DT fit and predict
     dt.fit(X_features, y_dt)  #remove this for no dt
     y_pred_benign = dt.predict(X_features_benign)  # remove this for no dt
-    y_proba_benign = dt.predict_proba(X_features_benign)[:, 1]  # remove this for no dt
+    y_proba_benign = malicious_probability(dt, X_features_benign)  # remove this for no dt
     y_pred_malicious = dt.predict(X_features_malicious)  # remove this for no dt
-    y_proba_malicious = dt.predict_proba(X_features_malicious)[:, 1]  # remove this for no dt
+    y_proba_malicious = malicious_probability(dt, X_features_malicious)  # remove this for no dt
 
     # Unsupervised Thresholding, Percentile
-    threshold_percentile = np.percentile(errors_val, 85)
-    print("Threshold percentile 85")
+    threshold_percentile = np.percentile(errors_val, 95)
+    print("Threshold percentile 95")
 
     y_pred_benign_percentile = (errors_benign > threshold_percentile).astype(int)
     y_pred_malicious_percentile = (errors_malicious > threshold_percentile).astype(int)
     y_pred_iotpot_percentile = (errors_iotpot > threshold_percentile).astype(int)
     y_pred_iotpot = dt.predict(X_features_iotpot)
-    y_proba_iotpot = dt.predict_proba(X_features_iotpot)[:, 1]
+    y_proba_iotpot = malicious_probability(dt, X_features_iotpot)
 
     ids_eval.print_memory_usage()
 
@@ -269,7 +339,7 @@ def test(net, X_benign_test, X_malicious_test, X_iotpot_test, X_Validation,parti
         y_pred_iotpot,
         y_proba_iotpot,
         dt,
-        dt_tinyml,
+        dt_tinyml
     ) # remove everything with dt for no dt
 
 def reconstruction_errors(net, X, device):
@@ -277,6 +347,7 @@ def reconstruction_errors(net, X, device):
     with torch.no_grad():
         x = torch.as_tensor(X, dtype=torch.float32, device=device)
         recon = net(x)
+
         return torch.mean((x - recon) ** 2, dim=1).cpu().numpy()
 
 def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
@@ -295,10 +366,10 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
     # Load data set
     # which_dataset 2 for BoTIoT; 3 for IoTID20 just like client
 
-    _, _, X_benign_test, X_malicious_test, X_Validation, X_train_dt, y_dt = load_centralized_dataset()
+    _, _, X_benign_test, X_malicious_test, X_Validation, X_train_dt, y_dt, phase_malicious_test = ld.load_centralized_dataset()
     # which_dataset 0 for Training BoTIoT -> Testing IoTID20; everything else for Training IoTID20 -> Testing BoTIoT just like client
     #_,_,X_test_full, X_test_validation, y_true,X_train_dt,y_dt = load_crossdataset(which_dataset = 1)  #remove everythin with dt for no dt
-    X_iotpot_test = load_binary_info_test(constants.IOTPOT_BINARY_INFO_FILE)
+    X_iotpot_test = ld.load_binary_info_test(constants.IOTPOT_BINARY_INFO_FILE)
     y_iotpot_test = np.ones(len(X_iotpot_test), dtype=np.int64)
 
     # Evaluate the global model on the test set
@@ -331,6 +402,11 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
         y_dt
     )
 
+    y_true = np.concatenate([
+        np.zeros(len(X_benign_test), dtype=int),
+        np.ones(len(X_malicious_test), dtype=int),
+    ])
+
     # Map test() outputs to the names used by the metric code
     y_pred_benign_ae = y_pred_benign_percentile
     y_pred_malicious_ae = y_pred_malicious_percentile
@@ -340,6 +416,18 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
 
     y_proba_benign_dt = y_proba_benign
     y_proba_malicious_dt = y_proba_malicious
+
+    phase_results_ae = phase_recall(
+        y_pred_malicious_ae,
+        phase_malicious_test,
+        "AE"
+    )
+
+    phase_results_dt = phase_recall(
+        y_pred_malicious_dt,
+        phase_malicious_test,
+        "AE + Decision Tree"
+    )
 
     # Flatten arrays so metrics receive one-dimensional inputs
     errors_benign = np.asarray(errors_benign).ravel()
@@ -352,11 +440,6 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
 
     y_proba_benign_dt = np.asarray(y_proba_benign_dt).ravel()
     y_proba_malicious_dt = np.asarray(y_proba_malicious_dt).ravel()
-
-    y_true = np.concatenate([
-        np.zeros(len(X_benign_test), dtype=int),
-        np.ones(len(X_malicious_test), dtype=int),
-    ])
 
     # Combine benign first, then malicious, matching y_true and the masks
     y_pred_percentile = np.concatenate([
@@ -432,25 +515,25 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
         f"({iotpot_recall_dt:.2%} recall, DT)"
     )
 
-    benign_errors = reconstruction_errors(model, X_benign_test, device)
-    malicious_errors = reconstruction_errors(model, X_malicious_test, device)
-    val_errors = reconstruction_errors(model, X_Validation, device)
+    #benign_errors = reconstruction_errors(model, X_benign_test, device)
+    #malicious_errors = reconstruction_errors(model, X_malicious_test, device)
+    #val_errors = reconstruction_errors(model, X_Validation, device)
 
     # Set the threshold using benign validation data
-    threshold = np.percentile(val_errors, 85)
+    #threshold = np.percentile(val_errors, 85)
 
     # Report each test set separately
-    benign_pred = benign_errors > threshold
-    malicious_pred = malicious_errors > threshold
+    #benign_pred = benign_errors > threshold
+    #malicious_pred = malicious_errors > threshold
 
-    print(
-        f"Benign test: {benign_pred.sum()} / {len(benign_pred)} flagged "
-        f"({benign_pred.mean():.2%} false-positive rate)"
-    )
-    print(
-        f"Malicious test: {malicious_pred.sum()} / {len(malicious_pred)} detected "
-        f"({malicious_pred.mean():.2%} recall)"
-    )
+    #print(
+    #    f"Benign test: {benign_pred.sum()} / {len(benign_pred)} flagged "
+    #    f"({benign_pred.mean():.2%} false-positive rate)"
+    #)
+    #print(
+    #    f"Malicious test: {malicious_pred.sum()} / {len(malicious_pred)} detected "
+    #    f"({malicious_pred.mean():.2%} recall)"
+    #)
 
     # Metrics
     # Confusion matrix
@@ -508,8 +591,8 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
     # calculate False Discovery Rate
     fdr_dt = fp_dt / (fp_dt + tp_dt) if (fp_dt + tp_dt) > 0 else 0 #remove this for no dt
     fdr_percentile = fp_percentile / (fp_percentile + tp_percentile) if (fp_percentile + tp_percentile) > 0 else 0
-    print(f"F1-Score DT: {f1_dt:.4f}",f"F1-Score percentile: {f1_percentile:.4f}") #remove this for no dt
-    print(f"False Discovery Rate DT: {fdr_dt:.4f}", f"False Discovery Rate percentile: {fdr_percentile:.4f}")
+    print(f"F1-Score DT: {f1_dt:.4f}, F1-Score percentile: {f1_percentile:.4f}") #remove this for no dt
+    print(f"False Discovery Rate DT: {fdr_dt:.4f}, False Discovery Rate percentile: {fdr_percentile:.4f}")
     print("MCC DT", mcc_dt, "MCC percentile", mcc_percentile)
     
     c_model = emlearn.convert(dt_tinyml, method='inline')
@@ -520,7 +603,6 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
 
     end_time = time.time()
     testing_time = end_time - start_time
-    print(testing_time)
 
     metrics = {
         #"threshold": float(threshold_ae),
@@ -549,7 +631,12 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
         "IoTPOT Recall DT": float(f"{iotpot_recall_dt:.4f}"),
         "IoTPOT Detected AE": int(y_pred_iotpot_ae.sum()),
         "IoTPOT Detected DT": int(y_pred_iotpot_dt.sum()),
-        "IoTPOT Samples": int(len(y_iotpot_true))
+        "IoTPOT Samples": int(len(y_iotpot_true)),
+        "Scan Recall AE": phase_results_ae.get("scan", 0.0),
+        "Distribution Recall AE": phase_results_ae.get("distribution", 0.0),
+
+        "Scan Recall DT": phase_results_dt.get("scan", 0.0),
+        "Distribution Recall DT": phase_results_dt.get("distribution", 0.0),
     }
 
     # Construct and return reply Message

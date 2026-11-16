@@ -4,6 +4,7 @@ import numpy as np
 import psutil
 from sklearn.metrics import confusion_matrix
 
+# Self written evaluation metrics
 class EvaluationMetrics():
     def intrusion_detection_capability(self, y_true, y_pred):
         
@@ -60,7 +61,7 @@ class EvaluationMetrics():
 
         return IDC
 
-    def print_memory_usage(self):
+    def print_memory_usage(self) -> None:
     
         process = psutil.Process(os.getpid())
     

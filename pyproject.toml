@@ -23,13 +23,14 @@ dependencies = [
     "numpy",
     "pandas",
     "psutil",
-    "onnx==1.14.1",
+    "onnx>=1.18",
     "emlearn"
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]
 
+# This is the configuration for our paper
 [tool.flwr.app]
 publisher = "k"
 
@@ -40,12 +41,12 @@ clientapp = "src.tinyfl.client_app:app"
 
 # Custom config values accessible via `context.run_config`
 [tool.flwr.app.config]
-num-server-rounds = 50
+num-server-rounds = 20 # prevent overfitting with too much rounds
 fraction-train = 1 #for how many clients train
 local-epochs = 3 #for epochs
 lr = 5e-4
 mu = 0.1 #change fedprox mu
-input-dim = 11 # 67 for IoTID20/CiC-BoTIoT, 11 for T-Pot Dataset
+input-dim = 16 # 67 for IoTID20/CiC-BoTIoT, 16 for T-Pot Dataset
 
 # only for IoTID20/CiC-BoTIoT:
 which_dataset = 0 #for which Dataset to train and test
