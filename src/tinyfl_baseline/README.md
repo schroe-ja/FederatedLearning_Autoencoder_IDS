@@ -1,4 +1,4 @@
-# TinyFL Model: ML Based IDS with FlowerAI
+# TinyFL Model: ML Based IDS with FlowerAI (Baseline architecture)
 
 - [TinyFL Model: ML Based IDS with FlowerAI](#tinyfl-model-ml-based-ids-with-flowerai)
   - [Install dependencies and project](#install-dependencies-and-project)

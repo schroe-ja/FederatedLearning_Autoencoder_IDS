@@ -10,9 +10,9 @@ from torch.utils.data import DataLoader, TensorDataset
 import pandas as pd
 import numpy as np
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GroupShuffleSplit
 
-from src.tinyfl import constants
+from src.tinyfl_sota import constants
 
 class DatasetLoad():
     def add_metadata(self, df, phase, scenario=None, device=None):
@@ -136,42 +136,11 @@ class DatasetLoad():
 
         return self.scale_features(X[constants.FEATURES].to_numpy())
 
-    # Feature creation
-    #def create_features(self, df: pd.DataFrame, is_malicious: bool) -> pd.DataFrame:
-#
-    #    df = df.copy()
-#
-    #    for col in constants.FEATURES:
-    #        df[col] = 0.0
-#
-    #    raw_count = pd.to_numeric(df["count"], errors="coerce").fillna(0)
-#
-    #    df["count"] = np.log1p(raw_count)
-    #    df["url"] = df["url"].apply(self._url_hash)
-#
-    #    if is_malicious:
-    #        lookup = self._load_binary_info_by_src_ip(constants.MALICIOUS_CONNECTION_FILE, constants.MALICIOUS_BINARY_INFO_FILE, malicious_format=True)
-    #    else:
-    #        lookup = self._load_binary_info_by_src_ip(constants.BENIGN_CONNECTION_FILE, constants.BENIGN_BINARY_INFO_FILE, malicious_format=False)
-#
-    #    binfo_cols = [f"binfo_{c}" for c in constants.BINFO_NUMERIC_COLS + constants.BINFO_TEXT_COLS]
-    #    for col in binfo_cols:
-    #        df[col] = (
-    #            df["src_ip"]
-    #            .astype(str)
-    #            .str.strip()
-    #            .map(lambda ip: lookup.get(ip, {}).get(col, 0.0))
-    #        )
-#
-    #    df["event_type"] = constants.EVENT_TYPES["network_traffic"]
-    #    df["label"] = 1 if is_malicious else 0
-#
-    #    return df[constants.FEATURES + ["label"]]
     def create_features(
-    self,
-    df: pd.DataFrame,
-    is_malicious: bool
-) -> pd.DataFrame:
+        self,
+        df: pd.DataFrame,
+        is_malicious: bool
+    ) -> pd.DataFrame:
 
         # Keep the original raw data unchanged.
         df = df.copy()
@@ -264,11 +233,6 @@ class DatasetLoad():
                 if c in df.columns:
                     X[f"binfo_{c}"] = df[c].apply(self._url_hash)
 
-            #if "count" in df.columns:
-            #    X["binfo_count"] = pd.to_numeric(
-            #        df["count"], errors="coerce"
-            #    ).fillna(0)
-
             return X
 
         if event_type == "command":
@@ -342,21 +306,100 @@ class DatasetLoad():
 
     def build_splits(self, benign: pd.DataFrame, malicious: pd.DataFrame):
 
-        benign_train, benign_test = train_test_split(benign, test_size=0.2, random_state=42)
-        benign_train_ae, benign_val_ae = train_test_split( benign_train, test_size=0.2, random_state=42)
-        benign_train_ae, benign_for_classifier = train_test_split( benign_train_ae, test_size=0.2, random_state=42)
+        random_state = 42
+
+        benign = benign.copy().reset_index(drop=True)
+        malicious = malicious.copy().reset_index(drop=True)
+
+        if "scenario_group" not in benign.columns:
+            raise ValueError("Benign data must contain scenario_group")
+
+        benign_groups = benign["scenario_group"].fillna("unknown").astype(str)
+
+        if benign_groups.nunique() >= 2:
+        
+            held_out_scenarios = {"speaker_power"}
+
+            benign_test = benign[
+                benign["scenario_group"].isin(held_out_scenarios)
+            ].copy()
+
+            benign_train = benign[
+                ~benign["scenario_group"].isin(held_out_scenarios)
+            ].copy()
+
+        else:
+            if len(benign) < 2:
+                raise ValueError("Not enough benign samples to split")
+
+            benign_train, benign_test = train_test_split(
+                benign,
+                test_size=0.2,
+                random_state=random_state
+            )
+
+        benign_train_ae, benign_val_ae = train_test_split(
+            benign_train,
+            test_size=0.2,
+            random_state=random_state
+        )
+
+        benign_train_ae, benign_for_classifier = train_test_split(
+            benign_train_ae,
+            test_size=0.2,
+            random_state=random_state
+        )
+
+        if "phase" not in malicious.columns:
+            raise ValueError("Malicious data must contain phase")
 
         if len(malicious) >= 2:
-            mal_train, mal_test = train_test_split(malicious, test_size=0.2, random_state=42)
+
+            if "attack_group" in malicious.columns:
+                attack_groups = malicious["attack_group"].astype(str)
+
+                if attack_groups.nunique() >= 2:
+                    splitter = GroupShuffleSplit(
+                        n_splits=1,
+                        test_size=0.2,
+                        random_state=random_state
+                    )
+
+                    train_idx, test_idx = next(
+                        splitter.split(malicious, groups=attack_groups)
+                    )
+
+                    mal_train = malicious.iloc[train_idx].copy()
+                    mal_test = malicious.iloc[test_idx].copy()
+
+                else:
+                    mal_train, mal_test = train_test_split(
+                        malicious,
+                        test_size=0.2,
+                        random_state=random_state
+                    )
+
+            else:
+                # No reliable attack-group metadata
+                mal_train, mal_test = train_test_split(
+                    malicious,
+                    test_size=0.2,
+                    random_state=random_state
+                )
+
         else:
             mal_train = malicious.copy()
             mal_test = malicious.iloc[0:0].copy()
+
         phase_malicious_test = mal_test["phase"].to_numpy()
 
-        X_train = self.scale_features(benign_train_ae[constants.FEATURES].to_numpy())
-        X_Validation = self.scale_features(benign_val_ae[constants.FEATURES].to_numpy())
+        X_train = self.scale_features(
+            benign_train_ae[constants.FEATURES].to_numpy()
+        )
 
-        #X_train_classifier = self.scale_features(pd.concat([benign_for_classifier, mal_train], ignore_index=True)[constants.FEATURES].to_numpy())
+        X_Validation = self.scale_features(
+            benign_val_ae[constants.FEATURES].to_numpy()
+        )
 
         X_train_classifier = self.scale_features(
             pd.concat(
@@ -370,51 +413,115 @@ class DatasetLoad():
             np.ones(len(mal_train), dtype=int)
         ])
 
-        #X_test_full = scale_features(pd.concat([benign_test, mal_test], ignore_index=True)[FEATURES].to_numpy())
-        X_benign_test = self.scale_features(benign_test[constants.FEATURES].to_numpy())
+        X_benign_test = self.scale_features(
+            benign_test[constants.FEATURES].to_numpy()
+        )
 
-        #y_true = np.concatenate([np.zeros(len(benign_test)), np.ones(len(mal_test))])
+        X_malicious_test = self.scale_features(
+            mal_test[constants.FEATURES].to_numpy()
+        )
 
-        X_malicious_test = self.scale_features(mal_test[constants.FEATURES].to_numpy())
+        trainloader = DataLoader(
+            TensorDataset(torch.FloatTensor(X_train)),
+            batch_size=64,
+            shuffle=True
+        )
 
-        trainloader = DataLoader(TensorDataset(torch.FloatTensor(X_train)), batch_size=64, shuffle=True)
+        validaton_loader = DataLoader(
+            TensorDataset(torch.FloatTensor(X_Validation)),
+            batch_size=64,
+            shuffle=False
+        )
 
-        validaton_loader = DataLoader(TensorDataset(torch.FloatTensor(X_Validation)), batch_size=64, shuffle=True)
+        if benign_groups.nunique() >= 2:
+            assert set(
+                benign_train["scenario_group"]
+            ).isdisjoint(
+                set(benign_test["scenario_group"])
+            )
 
-        assert set(benign_train.index).isdisjoint(benign_test.index)
-        assert set(benign_train_ae.index).isdisjoint(benign_val_ae.index)
-        assert set(benign_for_classifier.index).isdisjoint(benign_test.index)
+        if (
+            "attack_group" in malicious.columns
+            and malicious["attack_group"].nunique() >= 2
+        ):
+            assert set(
+                mal_train["attack_group"]
+            ).isdisjoint(
+                set(mal_test["attack_group"])
+            )
 
-        if len(malicious) >= 2:
-            assert set(mal_train.index).isdisjoint(mal_test.index)
-
-        #return trainloader, validaton_loader, X_test_full, X_Validation, y_true, X_train_classifier, y_class
         return (
-            trainloader, 
+            trainloader,
             validaton_loader,
-            X_benign_test, 
-            X_malicious_test, 
+            X_benign_test,
+            X_malicious_test,
             X_Validation,
-            X_train_classifier, 
+            X_train_classifier,
             y_class,
             phase_malicious_test,
         )
+    
+    def build_client_ae_splits(self, benign: pd.DataFrame):
+        benign = benign.copy().reset_index(drop=True)
 
-    def load_device_dataset(self, partition_id: int):
+        benign_train, benign_val = train_test_split(
+            benign,
+            test_size=0.2,
+            random_state=42
+        )
 
-        device_name = constants.DEVICE_NAMES[partition_id]
-        scenario_names = constants.DEVICE_SCENARIOS[device_name]
+        X_train = self.scale_features(
+            benign_train[constants.FEATURES].to_numpy()
+        )
 
-        dfs = []
-        for scenario in scenario_names:
-            path = os.path.join(constants.SCENARIOS_DIR, scenario, "network_traffic.csv")
-            dfs.append(pd.read_csv(path))
-        benign_raw = pd.concat(dfs, ignore_index=True)
+        X_val = self.scale_features(
+            benign_val[constants.FEATURES].to_numpy()
+        )
 
-        #malicious_raw = pd.read_csv(constants.MALICIOUS_FILE)
+        trainloader = DataLoader(
+            TensorDataset(torch.FloatTensor(X_train)),
+            batch_size=64,
+            shuffle=True
+        )
 
-        benign = self.create_features(benign_raw, is_malicious=False).drop(columns=["label"]).reset_index(drop=True)
-        #malicious = self.create_features(malicious_raw, is_malicious=True).drop(columns=["label"]).reset_index(drop=True)
+        validaton_loader = DataLoader(
+            TensorDataset(torch.FloatTensor(X_val)),
+            batch_size=64,
+            shuffle=False
+        )
+
+        return trainloader, validaton_loader
+
+    def load_device_dataset(self, device_name: str):
+
+        benign_frames = []
+
+        for scenario in constants.DEVICE_SCENARIOS[device_name]:
+
+            csv_path = os.path.join(
+                constants.SCENARIOS_DIR,
+                scenario,
+                "network_traffic.csv"
+            )
+
+            df = pd.read_csv(csv_path)
+
+            features = self.create_features(
+                df,
+                is_malicious=False
+            )
+
+            features["scenario_group"] = scenario
+            features["device_group"] = device_name
+            features["phase"] = "benign"
+
+            benign_frames.append(features)
+
+        benign = pd.concat(
+            benign_frames,
+            ignore_index=True
+        )
+        # malicious = self.create_features(malicious_raw, is_malicious=True).drop(columns=["label"]).reset_index(drop=True)
 
         if device_name == "laptop":
 
@@ -442,68 +549,21 @@ class DatasetLoad():
                 binary_info_raw, "binary_information"
             )
 
+            for event_df, event_name in [
+                (commands, "commands"),
+                (login_attempts, "login_attempts"),
+                (binary_info, "binary_information"),
+            ]:
+                event_df["scenario_group"] = f"laptop_{event_name}"
+                event_df["device_group"] = "laptop"
+                event_df["phase"] = "benign"
+
             benign = pd.concat(
                 [benign, commands, login_attempts, binary_info],
                 ignore_index=True
             )
 
-
-        malicious_frames = []
-
-        malicious_network_raw = pd.read_csv(
-            constants.MALICIOUS_NETWORK_TRAFFIC_FILE
-        )
-        malicious_frames.append(
-            self.add_metadata(
-                self.create_features(
-                    malicious_network_raw, is_malicious=True
-                ).drop(columns=["label"]),
-                "distribution"
-            )
-        )
-
-        malicious_commands_raw = pd.read_csv(
-            constants.MALICIOUS_COMMANDS_FILE
-        )
-        malicious_frames.append(
-            self.add_metadata(
-                self.create_event_features(
-                    malicious_commands_raw, "command"
-                ),
-                "distribution"
-            )
-        )
-
-        malicious_logins_raw = pd.read_csv(
-            constants.MALICIOUS_LOGIN_ATTEMPTS_FILE
-        )
-        malicious_frames.append(
-            self.add_metadata(
-                self.create_event_features(
-                    malicious_logins_raw, "login_attempt"
-                ),
-                "scan"
-            )
-        )
-
-        malicious_binary_raw = pd.read_csv(
-            constants.MALICIOUS_BINARY_INFO_FILE
-        )
-        malicious_frames.append(
-            self.add_metadata(
-                self.create_event_features(
-                    malicious_binary_raw, "binary_information"
-                ),
-                "distribution"
-            )
-        )
-
-        malicious = pd.concat(
-            malicious_frames,
-            ignore_index=True
-        )
-
-        return self.build_splits(benign, malicious)
+        return self.build_client_ae_splits(benign)
 
     def load_centralized_dataset(self):
 
@@ -512,8 +572,10 @@ class DatasetLoad():
             for scenarios in constants.DEVICE_SCENARIOS.values()
             for scenario in scenarios
         })
-        dfs = []
+
         mal_dir = constants.MALICIOUS_DATASET_DIR
+
+        benign_frames = []
 
         for scenario in all_scenarios:
             path = os.path.join(
@@ -521,9 +583,23 @@ class DatasetLoad():
                 scenario,
                 "network_traffic.csv"
             )
-            dfs.append(pd.read_csv(path))
 
-        benign_raw = pd.concat(dfs, ignore_index=True)
+            raw = pd.read_csv(path)
+
+            features = self.create_features(
+                raw,
+                is_malicious=False
+            ).drop(columns=["label"])
+
+            features["scenario_group"] = scenario
+            features["phase"] = "benign"
+
+            benign_frames.append(features)
+
+        benign = pd.concat(
+            benign_frames,
+            ignore_index=True
+        )
 
         constants.MALICIOUS_CONNECTION_FILE = os.path.join(
             mal_dir, "network_binary_connection.csv"
@@ -533,12 +609,6 @@ class DatasetLoad():
             mal_dir, "binary_information.csv"
         )
 
-        benign = self.create_features(
-            benign_raw,
-            is_malicious=False
-        ).drop(columns=["label"]).reset_index(drop=True)
-
-        
         mal_network = self.create_features(
             pd.read_csv(os.path.join(mal_dir, "network_traffic.csv")),
             is_malicious=True,
@@ -589,6 +659,15 @@ class DatasetLoad():
         binary_info = self.create_event_features(
             binary_info_raw, "binary_information"
         )
+
+        commands["scenario_group"] = "benign_commands"
+        commands["phase"] = "benign"
+
+        login_attempts["scenario_group"] = "benign_login_attempts"
+        login_attempts["phase"] = "benign"
+
+        binary_info["scenario_group"] = "benign_binary_information"
+        binary_info["phase"] = "benign"
 
         benign = pd.concat(
             [benign, commands, login_attempts, binary_info],

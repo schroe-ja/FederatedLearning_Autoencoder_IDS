@@ -4,6 +4,7 @@ import os
 import time
 import copy
 import psutil
+import copy
 
 import emlearn
 import pandas as pd
@@ -22,9 +23,9 @@ from sklearn.metrics import classification_report, confusion_matrix, f1_score,ro
 from sklearn.tree import DecisionTreeClassifier, plot_tree
 
 # from src.dataset_load import load_centralized_dataset,load_crossdataset, INPUT-DIM # original IoTID20/CiC-BoTIoT
-from src.tinyfl.dataset_load_tpot import DatasetLoad
-from src.tinyfl import constants
-from src.tinyfl.evaluation_metrics import EvaluationMetrics
+from src.tinyfl_sota.dataset_load_tpot import DatasetLoad
+from src.tinyfl_sota import constants
+from src.tinyfl_sota.evaluation_metrics import EvaluationMetrics
 
 ids_eval = EvaluationMetrics()
 ld = DatasetLoad()
@@ -192,7 +193,10 @@ def train(net, trainloader, validaton_loader, partition_id, epochs, lr, mu ,devi
             print(f'Validation loss has not improved for {patience} epochs')
             print(f'Train Loss: {avg_train_loss:.6f} | Val Loss: {avg_val_loss:.6f}')
             break
-
+    
+    if best_model_state is not None:
+        net.load_state_dict(best_model_state)
+        c
     ids_eval.print_memory_usage()  
      
     avg_trainloss = train_loss/len(trainloader)
@@ -258,7 +262,10 @@ def test(net, X_benign_test, X_malicious_test, X_iotpot_test, X_Validation, part
         errors_iotpot = torch.mean(
             torch.square(X_iotpot_test - recon_iotpot), dim=1
         ).cpu().numpy()
-        stats_iotpot = X_iotpot_test.std(dim=1).cpu().numpy()
+        stats_iotpot = X_iotpot_test.std(
+            dim=1,
+            correction=0
+        ).cpu().numpy()
 
         # .cpu() is needed if the model and tensors are on a GPU.
         X_iotpot_encoded = net.encoder(X_iotpot_test).detach().cpu().numpy()

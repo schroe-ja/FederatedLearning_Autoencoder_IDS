@@ -34,10 +34,10 @@ packages = ["."]
 [tool.flwr.app]
 publisher = "k"
 
-# Point to your ServerApp and ClientApp objects
+# Point to your ServerApp and ClientApp objects; change it to the used experiment
 [tool.flwr.app.components]
-serverapp = "src.tinyfl.server_app:app"
-clientapp = "src.tinyfl.client_app:app"
+serverapp = "src.tinyfl_sota.server_app:app"
+clientapp = "src.tinyfl_sota.client_app:app"
 
 # Custom config values accessible via `context.run_config`
 [tool.flwr.app.config]
