@@ -12,13 +12,11 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from sklearn.metrics import roc_auc_score, confusion_matrix, precision_recall_curve, roc_curve,auc, average_precision_score, classification_report, precision_score
 
-from src.tinyfl_sota.task import Autoencoder
-from src.tinyfl_sota.task import test as test_fn
-from src.tinyfl_sota.task import train as train_fn
-from src.tinyfl_sota import constants
-
-# from src.dataset_load import load_cross_data, load_mono_dataset # original IoTID20/CiC-BoTIoT
-from src.tinyfl_sota.dataset_load_tpot import DatasetLoad # T-Pot dataset, one client per IoT device
+from src.tinyfl.autoencoder import Autoencoder
+from src.tinyfl.sota.task import test as test_fn
+from src.tinyfl.autoencoder import train as train_fn
+from src.tinyfl import constants
+from src.tinyfl.sota.dataset_load_tpot import DatasetLoad # T-Pot dataset, one client per IoT device
 
 torch.use_deterministic_algorithms(True)
 

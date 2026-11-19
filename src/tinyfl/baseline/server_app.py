@@ -4,8 +4,10 @@ import torch
 
 from flwr.app import ArrayRecord, ConfigRecord, Context
 from flwr.serverapp import Grid, ServerApp
-from flwr.serverapp.strategy import FedAvg, FedProx
-from src.tinyfl_sota.task import Autoencoder, global_evaluate
+from flwr.serverapp.strategy import FedProx
+
+from src.tinyfl.baseline.task import global_evaluate
+from src.tinyfl.autoencoder import Autoencoder
 
 # Create ServerApp
 app = ServerApp()
