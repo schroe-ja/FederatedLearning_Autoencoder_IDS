@@ -223,6 +223,7 @@ class EvaluationMetrics:
             self.mcc(),
             self.roc_auc(),
             self.avg_pre(),
+            self.print_memory_usage(),
             {
                 "IDC AE": float("{:.4f}".format(self.intrusion_detection_capability())),
                 "IDC DT": float("{:.4f}".format(self.intrusion_detection_capability(False))),
