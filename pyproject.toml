@@ -16,10 +16,7 @@ requires-python = ">=3.13,<3.14"
 # Dependencies for your Flower App
 dependencies = [
     "flwr[simulation]>=1.23.0",
-    "flwr-datasets[vision]>=0.5.0",
     "torch==2.7.1",
-    "torchvision==0.22.1",
-    "wandb>=0.17.8",
     "scikit-learn",
     "numpy",
     "pandas",
@@ -44,11 +41,11 @@ clientapp = "src.tinyfl.sota.client_app:app"
 # Custom config values accessible via `context.run_config`
 [tool.flwr.app.config]
 num-server-rounds = 20 # prevent overfitting with too much rounds
-fraction-train = 1 #for how many clients train
+fraction-train = 0 # for how many clients train
 local-epochs = 3 #for epochs
 lr = 5e-4
 mu = 0.1 #change fedprox mu
-input-dim = 16 # 67 for IoTID20/CiC-BoTIoT, 16 for T-Pot Dataset
+input-dim = 16 
 
 # only for IoTID20/CiC-BoTIoT:
 which_dataset = 0 #for which Dataset to train and test
