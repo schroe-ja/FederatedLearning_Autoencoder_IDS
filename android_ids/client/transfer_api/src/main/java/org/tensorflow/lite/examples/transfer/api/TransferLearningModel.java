@@ -117,6 +117,7 @@ public final class TransferLearningModel implements Closeable {
 
   private final List<TrainingSample> trainingSamples = new ArrayList<>();
   private final List<TestingSample> testingSamples = new ArrayList<>();
+  private final List<TestingSample> validationSamples = new ArrayList<>();
 
   private ByteBuffer[] modelParameters;
 
@@ -176,6 +177,14 @@ public final class TransferLearningModel implements Closeable {
     }
 
     this.bottleneckShape = bottleneckModel.getBottleneckShape();
+    if (classes.size() != numBottleneckFeatures()) {
+      throw new IllegalArgumentException(
+          "Reconstruction target dimension mismatch: " +
+          classes.size() + " targets, " +
+          numBottleneckFeatures() + " input features"
+      );
+    }
+    
     int[] modelParameterSizes = trainHeadModel.getParameterSizes();
 
     modelParameters = new ByteBuffer[modelParameterSizes.length];
@@ -196,6 +205,7 @@ public final class TransferLearningModel implements Closeable {
 
     for (int elemIdx = 0; elemIdx < optimizerState.length; elemIdx++) {
       int bufferSize = optimizerStateElementSizes[elemIdx] * FLOAT_BYTES;
+
       optimizerState[elemIdx] = allocateBuffer(bufferSize);
       nextOptimizerState[elemIdx] = allocateBuffer(bufferSize);
       fillBufferWithZeros(optimizerState[elemIdx]);
@@ -205,8 +215,10 @@ public final class TransferLearningModel implements Closeable {
         allocateBuffer(getTrainBatchSize() * numBottleneckFeatures() * FLOAT_BYTES);
 
     int batchClassesNumElements = getTrainBatchSize() * classes.size();
+
     trainingBatchClasses = allocateBuffer(batchClassesNumElements * FLOAT_BYTES);
     zeroBatchClasses = allocateBuffer(batchClassesNumElements * FLOAT_BYTES);
+    
     for (int idx = 0; idx < batchClassesNumElements; idx++) {
       zeroBatchClasses.putFloat(0);
     }
@@ -258,6 +270,33 @@ public final class TransferLearningModel implements Closeable {
       }
 
       return null;
+    });
+  }
+
+  public Future<Void> addValidationSample(float[] features) {
+    checkNotTerminating();
+
+    return executor.submit(() -> {
+        ByteBuffer input = allocateBuffer(features.length * FLOAT_BYTES);
+
+        for (float value : features) {
+            input.putFloat(value);
+        }
+        input.rewind();
+
+        ByteBuffer bottleneck =
+                bottleneckModel.generateBottleneck(input, null);
+
+        trainingLock.lockInterruptibly();
+        try {
+            validationSamples.add(
+                    new TestingSample(bottleneck, "benign")
+            );
+        } finally {
+            trainingLock.unlock();
+        }
+
+        return null;
     });
   }
 
@@ -371,47 +410,96 @@ public final class TransferLearningModel implements Closeable {
     }
   }
 
+  public float calculateValidationThreshold() {
+    List<Float> benignValidationErrors = new ArrayList<>();
+
+    parameterLock.readLock().lock();
+
+    try {
+        for (TestingSample sample : validationSamples) {
+
+            float[] reconstruction =
+                    inferenceModel.runInference(
+                            sample.bottleneck,
+                            modelParameters
+                    );
+
+            float mse = 0.0f;
+
+            for (int j = 0; j < reconstruction.length; j++) {
+                float difference =
+                        sample.bottleneck.getFloat(j * FLOAT_BYTES)
+                        - reconstruction[j];
+
+                mse += difference * difference;
+            }
+
+            mse /= reconstruction.length;
+            benignValidationErrors.add(mse);
+        }
+    } finally {
+        parameterLock.readLock().unlock();
+    }
+
+    if (benignValidationErrors.isEmpty()) {
+        throw new IllegalStateException(
+                "No benign validation samples loaded"
+        );
+    }
+
+    Collections.sort(benignValidationErrors);
+
+    int index = (int) Math.ceil(
+            0.95 * benignValidationErrors.size()
+    ) - 1;
+
+    return benignValidationErrors.get(index);
+  }
 
   /**
    * IDS adaptation: returns (mean reconstruction MSE over all test samples, accuracy).
-   * Threshold = 85th percentile of the reconstruction errors of the benign test samples
-   * (as in the PyTorch version: 85th percentile of benign validation errors).
+   * Threshold = 95th percentile of the reconstruction errors of the benign test samples
+   * (as in the PyTorch version: 95th percentile of benign validation errors).
    * A sample is flagged as attack if its error is above the threshold.
    * Note: the Decision Tree of the PyTorch version is not available on the device.
    */
   public Pair<Float, Float> getTestStatistics() {
+
     int n = testingSamples.size();
+
     if (n == 0) return Pair.create(0.0f, 0.0f);
+
     float[] errors = new float[n];
     boolean[] malicious = new boolean[n];
-    List<Float> benignErrors = new ArrayList<>();
     float totalMse = 0.0f;
+
     parameterLock.readLock().lock();
+
     try {
       for (int i = 0; i < n; i++) {
         TestingSample sample = testingSamples.get(i);
         float[] recon = inferenceModel.runInference(sample.bottleneck, modelParameters);
         float err = 0.0f;
+
         for (int j = 0; j < recon.length; j++) {
           float d = sample.bottleneck.getFloat(j * FLOAT_BYTES) - recon[j];
           err += d * d;
         }
+
         err /= recon.length;
         errors[i] = err;
         malicious[i] = sample.className.equals("malicious");
-        if (!malicious[i]) benignErrors.add(err);
+
         totalMse += err;
       }
     } finally {
       parameterLock.readLock().unlock();
     }
 
-    float threshold = Float.MAX_VALUE;
-    if (!benignErrors.isEmpty()) {
-      Collections.sort(benignErrors);
-      threshold = benignErrors.get((int) Math.floor(0.85 * (benignErrors.size() - 1)));
-    }
+    float threshold = calculateValidationThreshold();
+
     int correct = 0;
+
     for (int i = 0; i < n; i++) {
       boolean flagged = errors[i] > threshold;
       if (flagged == malicious[i]) correct++;
@@ -540,22 +628,18 @@ public final class TransferLearningModel implements Closeable {
 
           @Override
           public boolean hasNext() {
-            return nextIndex < trainingSamples.size();
+            return nextIndex + getTrainBatchSize() <= trainingSamples.size();
           }
 
           @Override
           public List<TrainingSample> next() {
             int fromIndex = nextIndex;
             int toIndex = nextIndex + getTrainBatchSize();
+            
             nextIndex = toIndex;
-            if (toIndex >= trainingSamples.size()) {
-              // To keep batch size consistent, last batch may include some elements from the
-              // next-to-last batch.
-              return trainingSamples.subList(
-                  trainingSamples.size() - getTrainBatchSize(), trainingSamples.size());
-            } else {
-              return trainingSamples.subList(fromIndex, toIndex);
-            }
+            
+            return trainingSamples.subList(fromIndex, toIndex);
+            
           }
         };
   }

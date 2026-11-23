@@ -61,44 +61,147 @@ public class FlowerClient {
         }
     }
 
+    private String datasetForDevice(int deviceId) throws IOException {
+        switch (deviceId) {
+            case 2:
+                return "mobile";
+            case 3:
+                return "panel";
+            default:
+                throw new IOException("Invalid device ID: " + deviceId);
+        }
+    }
+
     /**
      * IDS adaptation: reads assets/data/partition_<id>_train.txt and _test.txt.
      * Each line: label,f1,...,f11  (label 0 = benign, 1 = malicious; features already scaled
      * by scale_features() in dataset_load_tpot.py). Created by export_partitions.py.
      */
-    public void loadData(int device_id) {
-        try {
-            Log.d("FLOWERCLIENT_LOAD", "loadData: ");
-            readFile("data/partition_" + (device_id - 1) + "_train.txt", true);
-            readFile("data/partition_" + (device_id - 1) + "_test.txt", false);
-        } catch (IOException ex) {
-            ex.printStackTrace();
-        }
+    public void loadData(int device_id) throws IOException {
+
+        String dataset = datasetForDevice(device_id);
+
+        Log.d("FLOWERCLIENT_LOAD", "Loading " + dataset + " dataset");
+
+        readFile(
+            "data/partition_" + dataset + "_train.txt",
+            true
+        );
+
+        readValidationFile(
+            "data/partition_" + dataset + "_val.txt"
+        );
+
+        Log.d("FLOWERCLIENT_LOAD", "Datasets loaded");
+
+    }
+
+    public void loadValidationData(int device_id) throws IOException {
+        String dataset = datasetForDevice(device_id);
+
+        readValidationFile(
+            "data/partition_" + dataset + "_val.txt"
+        );
     }
 
     private void readFile(String path, boolean isTraining) throws IOException {
+        
         BufferedReader reader = new BufferedReader(new InputStreamReader(this.context.getAssets().open(path)));
         String line;
         int i = 0;
+
         while ((line = reader.readLine()) != null) {
             if (line.trim().isEmpty()) continue;
             i++;
             String[] parts = line.trim().split(",");
-            String sampleClass = parts[0].equals("1") ? "malicious" : "benign";
+
+            if (parts.length != TransferLearningModelWrapper.INPUT_DIM + 1) {
+                throw new IOException(
+                    "Wrong feature count in " + path +
+                    ": expected " + TransferLearningModelWrapper.INPUT_DIM +
+                    ", got " + (parts.length - 1)
+                );
+            }
+
+            int label = Integer.parseInt(parts[0]);
+
+            if (label != 0 && label != 1) {
+                throw new IOException("Invalid label: " + label);
+            }
+
+            if (isTraining && label != 0) {
+                throw new IOException(
+                    "Malicious sample found in AE training data: " + path
+                );
+            }
+
             float[] features = new float[TransferLearningModelWrapper.INPUT_DIM];
+
             for (int k = 0; k < features.length; k++) {
                 features[k] = Float.parseFloat(parts[k + 1]);
             }
             try {
-                this.tlModel.addSample(features, sampleClass, isTraining).get();
+                this.tlModel.addSample(features, "feature_0", isTraining).get();
             } catch (ExecutionException e) {
                 throw new RuntimeException("Failed to add sample to model", e.getCause());
             } catch (InterruptedException e) {
-                // no-op
+                Thread.currentThread().interrupt();
+                throw new IOException("Interrupted while loading " + path, e);
             }
         }
         Log.e(TAG, i + (isTraining ? " training" : " test") + " samples loaded");
         reader.close();
+    }
+
+    private void readValidationFile(String path) throws IOException {
+
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(context.getAssets().open(path)))) {
+
+            String line;
+
+            while ((line = reader.readLine()) != null) {
+                if (line.trim().isEmpty()) {
+                    continue;
+                }
+
+                String[] parts = line.trim().split(",");
+
+                if (parts.length != TransferLearningModelWrapper.INPUT_DIM + 1) {
+                    throw new IOException(
+                            "Wrong feature count in " + path
+                    );
+                }
+
+                if (Integer.parseInt(parts[0]) != 0) {
+                    throw new IOException(
+                            "Non-benign validation sample in " + path
+                    );
+                }
+
+                float[] features =
+                        new float[TransferLearningModelWrapper.INPUT_DIM];
+
+                for (int i = 0; i < features.length; i++) {
+                    features[i] = Float.parseFloat(parts[i + 1]);
+                }
+
+                try {
+                    tlModel.addValidationSample(features).get();
+
+                } catch (ExecutionException e) {
+                    throw new IOException(
+                            "Failed to load validation sample", e
+                    );
+
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException(
+                            "Validation loading interrupted", e
+                    );
+                }
+            }
+        }
     }
 
     // function to write to a file :

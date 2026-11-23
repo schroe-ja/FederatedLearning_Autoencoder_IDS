@@ -14,7 +14,7 @@ from sklearn.model_selection import train_test_split, GroupShuffleSplit
 
 from src.tinyfl import constants
 
-class DatasetLoad():
+class DatasetLoad:
     def add_metadata(self, df, phase, scenario=None, device=None):
         df = df.copy()
 
@@ -353,45 +353,107 @@ class DatasetLoad():
         if "phase" not in malicious.columns:
             raise ValueError("Malicious data must contain phase")
 
-        if len(malicious) >= 2:
+        mal_train_parts = []
+        mal_test_parts = []
 
-            if "attack_group" in malicious.columns:
-                attack_groups = malicious["attack_group"].astype(str)
+        # Distribution: split by source IP
+        distribution = malicious[
+            malicious["phase"] == "distribution"
+        ].copy()
 
-                if attack_groups.nunique() >= 2:
-                    splitter = GroupShuffleSplit(
-                        n_splits=1,
-                        test_size=0.2,
-                        random_state=random_state
-                    )
+        # Scan: random-row split
+        scan = malicious[
+            malicious["phase"] == "scan"
+        ].copy()
 
-                    train_idx, test_idx = next(
-                        splitter.split(malicious, groups=attack_groups)
-                    )
+        # Distribution rows with a known source IP
+        distribution_grouped = distribution[
+            distribution["attack_group"].notna()
+        ].copy() if "attack_group" in distribution.columns else distribution.iloc[0:0].copy()
 
-                    mal_train = malicious.iloc[train_idx].copy()
-                    mal_test = malicious.iloc[test_idx].copy()
+        # Distribution rows without source IP (commands/binary info)
+        distribution_ungrouped = distribution.drop(
+            index=distribution_grouped.index
+        ).copy()
 
-                else:
-                    mal_train, mal_test = train_test_split(
-                        malicious,
-                        test_size=0.2,
-                        random_state=random_state
-                    )
+        if not distribution_grouped.empty:
+            groups = distribution_grouped["attack_group"].astype(str)
 
-            else:
-                # No reliable attack-group metadata
-                mal_train, mal_test = train_test_split(
-                    malicious,
+            if groups.nunique() >= 2:
+                splitter = GroupShuffleSplit(
+                    n_splits=1,
                     test_size=0.2,
-                    random_state=random_state
+                    random_state=42
                 )
 
-        else:
-            mal_train = malicious.copy()
-            mal_test = malicious.iloc[0:0].copy()
+                train_idx, test_idx = next(
+                    splitter.split(
+                        distribution_grouped,
+                        groups=groups
+                    )
+                )
+
+                mal_train_parts.append(
+                    distribution_grouped.iloc[train_idx]
+                )
+                mal_test_parts.append(
+                    distribution_grouped.iloc[test_idx]
+                )
+            else:
+                raise ValueError(
+                    "At least two source IPs are required "
+                    "for distribution group splitting."
+                )
+
+        # Distribution events without source IP: random rows
+        if len(distribution_ungrouped) >= 2:
+            train, test = train_test_split(
+                distribution_ungrouped,
+                test_size=0.2,
+                random_state=42
+            )
+            mal_train_parts.append(train)
+            mal_test_parts.append(test)
+
+        # Scan: random rows
+        if len(scan) >= 2:
+            train, test = train_test_split(
+                scan,
+                test_size=0.2,
+                random_state=42
+            )
+            mal_train_parts.append(train)
+            mal_test_parts.append(test)
+
+        mal_train = pd.concat(
+            mal_train_parts,
+            ignore_index=True
+        )
+
+        mal_test = pd.concat(
+            mal_test_parts,
+            ignore_index=True
+        )
 
         phase_malicious_test = mal_test["phase"].to_numpy()
+
+        train_ips = set(
+            mal_train.loc[
+                mal_train["phase"].eq("distribution"),
+                "attack_group"
+            ].dropna()
+        )
+
+        test_ips = set(
+            mal_test.loc[
+                mal_test["phase"].eq("distribution"),
+                "attack_group"
+            ].dropna()
+        )
+
+        assert train_ips.isdisjoint(test_ips), (
+            "Source IP leakage between training and testing!"
+        )
 
         X_train = self.scale_features(
             benign_train_ae[constants.FEATURES].to_numpy()
@@ -440,15 +502,23 @@ class DatasetLoad():
                 set(benign_test["scenario_group"])
             )
 
-        if (
-            "attack_group" in malicious.columns
-            and malicious["attack_group"].nunique() >= 2
-        ):
-            assert set(
-                mal_train["attack_group"]
-            ).isdisjoint(
-                set(mal_test["attack_group"])
-            )
+        train_ips = set(
+            mal_train.loc[
+                mal_train["phase"].eq("distribution"),
+                "attack_group"
+            ].dropna().astype(str)
+        )
+
+        test_ips = set(
+            mal_test.loc[
+                mal_test["phase"].eq("distribution"),
+                "attack_group"
+            ].dropna().astype(str)
+        )
+
+        assert train_ips.isdisjoint(test_ips), (
+            "Source IP leakage between distribution train and test!"
+        )
 
         return (
             trainloader,
@@ -609,13 +679,24 @@ class DatasetLoad():
             mal_dir, "binary_information.csv"
         )
 
+        mal_network_raw = pd.read_csv(
+            os.path.join(mal_dir, "network_traffic.csv")
+        )
+
         mal_network = self.create_features(
-            pd.read_csv(os.path.join(mal_dir, "network_traffic.csv")),
+            mal_network_raw,
             is_malicious=True,
         ).drop(columns=["label"])
 
         mal_network = self.add_metadata(
             mal_network, "distribution"
+        )
+
+        mal_network["attack_group"] = (
+            mal_network_raw["src_ip"]
+            .astype(str)
+            .str.strip()
+            .to_numpy()
         )
 
         mal_commands = self.create_event_features(

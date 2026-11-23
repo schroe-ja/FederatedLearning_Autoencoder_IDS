@@ -72,9 +72,9 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
     implementation project(path: ':transfer_api')
 
-    implementation 'org.tensorflow:tensorflow-lite:0.0.0-nightly-SNAPSHOT'
+    implementation 'org.tensorflow:tensorflow-lite:2.10.0'
     // This dependency adds the necessary TF op support.
-    implementation 'org.tensorflow:tensorflow-lite-select-tf-ops:0.0.0-nightly-SNAPSHOT'
+    implementation 'org.tensorflow:tensorflow-lite-select-tf-ops:2.10.0'
 
     implementation "io.grpc:grpc-okhttp:$grpc_version"
     implementation "io.grpc:grpc-protobuf-lite:$grpc_version"
@@ -89,37 +89,3 @@ dependencies {
     implementation 'com.google.protobuf:protobuf-javalite:3.17.3'
 
 }
-
-def modelUrl = 'https://www.dropbox.com/s/tubgpepk2q6xiny/models.zip?dl=1'
-def modelArchivePath = "${buildDir}/model.zip"
-def modelTargetLocation = 'src/main/assets/model'
-
-
-def dataUrl = 'https://www.dropbox.com/s/coeixr4kh8ljw6o/cifar10.zip?dl=1'
-def dataArchivePath = "${buildDir}/data.zip"
-def dataTargetLocation = 'src/main/assets/data'
-
-task downloadModelAndData(type: DefaultTask) {
-    doFirst {
-        println "Downloading and unpacking the model..."
-        mkdir project.buildDir
-    }
-
-    doLast {
-        ant.mkdir(dir: modelTargetLocation)
-        ant.mkdir(dir: dataTargetLocation)
-
-        // If you want to use your own models rather than pre-built models,
-        // comment out the following three lines.
-        ant.get(src: modelUrl, dest: modelArchivePath)
-        ant.unzip(src: modelArchivePath, dest: modelTargetLocation)
-        ant.delete(file: modelArchivePath)
-
-        ant.get(src: dataUrl, dest: dataArchivePath)
-        ant.unzip(src: dataArchivePath, dest: dataTargetLocation)
-        ant.delete(file: dataArchivePath)
-
-    }
-}
-
-preBuild.dependsOn downloadModelAndData

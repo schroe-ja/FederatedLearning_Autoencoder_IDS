@@ -6,7 +6,7 @@ import tensorflow as tf
 from tfltransfer import bases, heads, optimizers
 from tfltransfer.tflite_transfer_converter import TFLiteTransferConverter
 
-INPUT_DIM = 11  # = INPUT_DIM in dataset_load_tpot.py
+INPUT_DIM = 16  # = INPUT_DIM in dataset_load_tpot.py
 
 base = tf.keras.Sequential(
     [tf.keras.Input(shape=(INPUT_DIM,)), tf.keras.layers.Lambda(lambda x: x)]
@@ -14,15 +14,14 @@ base = tf.keras.Sequential(
 base.compile(loss="mse", optimizer="sgd")
 base.save("identity_model", save_format="tf")
 
-# Head model = autoencoder (11 -> 48 -> 24 -> 6 -> 24 -> 48 -> 11).
 head = tf.keras.Sequential(
     [
         tf.keras.Input(shape=(INPUT_DIM,)),
-        tf.keras.layers.Dense(48, activation="relu"),
-        tf.keras.layers.Dense(24, activation="relu"),
-        tf.keras.layers.Dense(6),
-        tf.keras.layers.Dense(24, activation="relu"),
-        tf.keras.layers.Dense(48, activation="relu"),
+        tf.keras.layers.Dense(64, activation="relu"),
+        tf.keras.layers.Dense(32, activation="relu"),
+        tf.keras.layers.Dense(12),
+        tf.keras.layers.Dense(32, activation="relu"),
+        tf.keras.layers.Dense(64, activation="relu"),
         tf.keras.layers.Dense(INPUT_DIM),
     ]
 )

@@ -48,8 +48,8 @@ public class FlowerWorker extends Worker {
     public FlowerClient fc;
     private StreamObserver<ClientMessage> UniversalRequestObserver;
     private static final String TAG = "Flower";
-    String serverIp = "00:00:00";
-    String serverPort = "0000";
+    String serverIp = "10.42.0.1";
+    String serverPort = "8000";
     String dataslice = "1";
     public static String start_time;
     public static String end_time;

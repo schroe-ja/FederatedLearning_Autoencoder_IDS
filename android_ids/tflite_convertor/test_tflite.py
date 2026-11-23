@@ -13,13 +13,19 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ASSETS = os.path.join(HERE, "..", "client", "app", "src", "main", "assets")
 MODEL_DIR = os.path.join(ASSETS, "model")
 DATA_DIR = os.path.join(ASSETS, "data")
-NAMES = ["laptop", "mobile", "panel", "bridge", "hue", "camera", "lamp", "socket", "speaker", "home_assistant"]
+NAMES = ["mobile", "panel"]
 
 
 def load(model_dir, name):
-    it = tf.lite.Interpreter(model_path=os.path.join(model_dir, f"{name}.tflite"))
-    it.allocate_tensors()
-    return it
+    model_path = os.path.join(model_dir, name + ".tflite")
+
+    interpreter = tf.lite.Interpreter(
+        model_path=model_path
+    )
+
+    interpreter.allocate_tensors()
+
+    return interpreter
 
 
 def run(it, inputs):
@@ -75,18 +81,20 @@ def test_device(model_dir, train_file, test_file):
     acc = float(((e > thr) == (yte == 1)).mean())
     after = e[yte == 0].mean()
     mal = e[yte == 1].mean() if n_mal else float("nan")
+
     print(f"benign test MSE after training: {after:.5f}, threshold (85th pct): {thr:.5f}")
+    
     if n_mal:
         print(f"malicious test MSE: {mal:.5f}")
+
     print(f"accuracy: {acc:.3f}")
     print("OK: model trains and evaluates in the TFLite format")
+
     return dict(train=len(xtr), test=len(xte), before=before, after=after, mal=mal, thr=thr, acc=acc,
                 baseline=n_mal / len(xte))
 
-
 def paths(i):
     return (os.path.join(DATA_DIR, f"partition_{i}_train.txt"), os.path.join(DATA_DIR, f"partition_{i}_test.txt"))
-
 
 if __name__ == "__main__":
     args = sys.argv[1:]
@@ -95,12 +103,15 @@ if __name__ == "__main__":
     else:
         devices = [int(args[0])] if len(args) == 1 else range(10)
         results = {}
+
         for i in devices:
             print(f"\n=== Device {i} ({NAMES[i]}) ===")
             results[i] = test_device(MODEL_DIR, *paths(i))
+
         if len(results) > 1:
             print("\n=== Summary ===")
-            print("device            train  test  benign_before  benign_after  malicious   threshold  accuracy  baseline")
+            print("device train test benign_before benign_after malicious threshold accuracy baseline")
+
             for i, r in results.items():
                 print(f"{i} {NAMES[i]:<15} {r['train']:>6} {r['test']:>5} {r['before']:>14.4f} {r['after']:>13.4f} "
                       f"{r['mal']:>10.4f} {r['thr']:>10.4f} {r['acc']:>9.3f} {r['baseline']:>9.3f}")

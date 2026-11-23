@@ -15,6 +15,8 @@ import java.nio.channels.GatheringByteChannel;
 import java.util.Arrays;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.List;
+import java.util.ArrayList;
 import org.tensorflow.lite.examples.transfer.api.AssetModelLoader;
 import org.tensorflow.lite.examples.transfer.api.TransferLearningModel;
 import org.tensorflow.lite.examples.transfer.api.TransferLearningModel.LossConsumer;
@@ -32,7 +34,7 @@ public class TransferLearningModelWrapper implements Closeable {
      * Number of input features of the IDS autoencoder (INPUT_DIM = 11 in dataset_load_tpot.py).
      * Must match the input shape in tflite_convertor/convert_to_tflite.py.
      */
-    public static final int INPUT_DIM = 11;
+    public static final int INPUT_DIM = 16;
 
     private final TransferLearningModel model;
 
@@ -44,12 +46,19 @@ public class TransferLearningModelWrapper implements Closeable {
                 new TransferLearningModel(
                         new AssetModelLoader(context, "model"),
                         // The autoencoder output has INPUT_DIM values (one per feature).
-                        Arrays.asList("count", "url", "binfo_count",
-                                "binfo_obfuscation_Size(Bytes)", "binfo_obfuscation_Strings",
-                                "binfo_obfuscation_Strings_per_kB", "binfo_obfuscation_Entropy",
-                                "binfo_file_type", "binfo_cpu_arch", "binfo_linkage",
-                                "binfo_persistence"));
+                        featureNames()
+                );
         this.context = context;
+    }
+
+    private static List<String> featureNames() {
+        List<String> names = new ArrayList<>();
+
+        for (int i = 0; i < INPUT_DIM; i++) {
+            names.add("feature_" + i);
+        }
+
+        return names;
     }
 
 
@@ -69,6 +78,10 @@ public class TransferLearningModelWrapper implements Closeable {
     // This method is thread-safe.
     public Future<Void> addSample(float[] image, String className, Boolean isTraining) {
         return model.addSample(image, className, isTraining);
+    }
+
+    public Future<Void> addValidationSample(float[] features) {
+        return model.addValidationSample(features);
     }
 
     public Pair<Float, Float> calculateTestStatistics(){

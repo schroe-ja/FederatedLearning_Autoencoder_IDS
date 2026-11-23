@@ -1,3 +1,20 @@
+# Android client
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+tflite_convertor/identity_model/
+tflite_convertor/tflite_model/
+
+build/
+.gradle/
+.idea/
+local.properties
+*.iml
+captures/
+
+
 # Datasets
 *.csv
 t-pot_data_analysis/
