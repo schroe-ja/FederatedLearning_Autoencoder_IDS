@@ -3,6 +3,7 @@ from flwr.clientapp import ClientApp
 from src.tinyfl.sota.client_app import app as pytorch_app
 from src.tinyfl.client_app_android import app as android_app
 
+app = ClientApp()
 
 def route(message, context):
     framework = context.node_config.get("framework", "pytorch")
@@ -15,6 +16,16 @@ def route(message, context):
 
     raise ValueError(f"Unknown framework: {framework}")
 
+@app.train()
+def train(message, context):
+    return route(message, context)
 
-app = ClientApp()
-app = route
+
+@app.evaluate()
+def evaluate(message, context):
+    return route(message, context)
+
+
+@app.query()
+def query(message, context):
+    return route(message, context)
