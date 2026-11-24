@@ -35,8 +35,9 @@ publisher = "k"
 
 # Point to your ServerApp and ClientApp objects; change it to the used experiment
 [tool.flwr.app.components]
-serverapp = "src.tinyfl.baseline.server_app:app"
-clientapp = "src.tinyfl.baseline.client_app:app"
+serverapp = "src.tinyfl.sota.server_app:app"
+#clientapp = "src.tinyfl.baseline.client_app:app"
+clientapp = "src.tinyfl.client_app_router:app"
 
 # Custom config values accessible via `context.run_config`
 [tool.flwr.app.config]
