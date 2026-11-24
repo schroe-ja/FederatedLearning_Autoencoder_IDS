@@ -21,6 +21,7 @@ dependencies = [
     "numpy",
     "pandas",
     "psutil",
+    "matplotlib",
     "onnx>=1.18",
     "emlearn",
     "tensorflow==2.18.0",
