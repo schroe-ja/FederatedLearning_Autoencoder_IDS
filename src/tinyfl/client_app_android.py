@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import time
 
 from urllib.request import Request, urlopen
 
@@ -20,6 +21,7 @@ app = ClientApp()
 
 @app.train()
 def train(msg: Message, context: Context):
+    start_time = time.time()
 
     state = msg.content["arrays"].to_torch_state_dict()
 
@@ -72,16 +74,20 @@ def train(msg: Message, context: Context):
             raise ValueError("Invalid Android parameters")
 
         updated_state[name] = torch.from_numpy(array)
+    
+    end_time = time.time()
+    training_time = end_time - start_time
 
-    return Message(
-        content=RecordDict({
-            "arrays": ArrayRecord(updated_state),
-            "metrics": MetricRecord({
-                "num-examples": result.fit_res.num_examples,
-            }),
-        }),
-        reply_to=msg,
-    )
+    
+    model_record = ArrayRecord(updated_state)
+    metrics = {
+        "num-examples": result.fit_res.num_examples,
+        "avg_training_time": float("{:.2f}".format(training_time)),
+    }
+    metric_record = MetricRecord(metrics)
+    content = RecordDict({"arrays": model_record, "metrics": metric_record})
+    
+    return Message(content=content, reply_to=msg)
 
 @app.evaluate()
 def evaluate(msg: Message, context: Context):
