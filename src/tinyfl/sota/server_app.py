@@ -32,13 +32,15 @@ def main(grid: Grid, context: Context) -> None:
     strategy = FedProx(
         fraction_train=fraction_train,
         fraction_evaluate=0.0,
+        min_available_nodes=2,
+        min_train_nodes=2,
     )
 
     # Start strategy, run FedProx for `num_rounds`
     result = strategy.start(
         grid=grid,
         initial_arrays=arrays,
-        train_config=ConfigRecord({"lr": lr},{"mu": mu}),
+        train_config=ConfigRecord({"lr": lr, "mu": mu}),
         num_rounds=num_rounds,  
         evaluate_fn=global_evaluate,
     )
