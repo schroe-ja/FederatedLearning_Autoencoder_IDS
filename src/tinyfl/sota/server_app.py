@@ -29,7 +29,10 @@ def main(grid: Grid, context: Context) -> None:
     arrays = ArrayRecord(global_model.state_dict())
 
     # Initialize FedProx strategy
-    strategy = FedProx(fraction_train=fraction_train)
+    strategy = FedProx(
+        fraction_train=fraction_train,
+        fraction_evaluate=0.0,
+    )
 
     # Start strategy, run FedProx for `num_rounds`
     result = strategy.start(
