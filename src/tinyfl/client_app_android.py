@@ -82,3 +82,44 @@ def train(msg: Message, context: Context):
         }),
         reply_to=msg,
     )
+
+@app.evaluate()
+def evaluate(msg: Message, context: Context):
+    state = msg.content["arrays"].to_torch_state_dict()
+
+    parameters = pb.Parameters(
+        tensors=[
+            np.asarray(w.detach().cpu().numpy().T, dtype="<f4").tobytes()
+            for w in state.values()
+        ],
+        tensor_type="ND",
+    )
+
+    instruction = pb.ServerMessage(
+        evaluate_ins=pb.ServerMessage.EvaluateIns(
+            parameters=parameters,
+            config={},
+        )
+    )
+
+    request = Request(
+        "http://127.0.0.1:8082",
+        data=instruction.SerializeToString(),
+        method="POST",
+    )
+
+    with urlopen(request, timeout=670) as response:
+        result = pb.ClientMessage.FromString(response.read())
+
+    if not result.HasField("evaluate_res"):
+        raise RuntimeError("Expected Android EvaluateRes")
+
+    metrics = MetricRecord({
+        "num-examples": result.evaluate_res.num_examples,
+        "eval_loss": float(result.evaluate_res.loss),
+    })
+
+    return Message(
+        content=RecordDict({"metrics": metrics}),
+        reply_to=msg,
+    )
