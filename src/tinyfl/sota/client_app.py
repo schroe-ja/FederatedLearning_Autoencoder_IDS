@@ -146,8 +146,6 @@ def evaluate(msg: Message, context: Context):
     partition = partition_id
     #which_dataset: int = context.run_config["which_dataset"]
 
-    #_,_,X_test_full, X_test_validation, y_true,X_train_dt,y_dt = load_mono_dataset(partition, num_partitions,which_dataset=which_dataset)
-    #_,_,X_test_full, X_test_validation, y_true,X_train_dt,y_dt = load_cross_data(partition, num_partitions, which_dataset=which_dataset)
     trainloader, validaton_loader = ld.load_device_dataset(
         device_name
     )

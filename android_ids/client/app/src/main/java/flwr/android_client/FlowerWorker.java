@@ -370,39 +370,39 @@ public class FlowerWorker extends Worker {
                         end_time = sdf.format(currentDate);
                     }
                     Log.d("FIT-RESPONSE", "ABOUT TO SEND FIT RESPONSE");
-                    c = fitResAsProto(outputs.first, outputs.second);
+                    c = fitResAsProto(
+                        outputs.first,
+                        outputs.second,
+                        worker.fc.getTrainLoss(),
+                        worker.fc.getValLoss()
+                    );
                 } else if (message.hasEvaluateIns()) {
-                    Log.e(TAG, "Handling EvaluateIns");
+                    List<ByteString> layers =
+                        message.getEvaluateIns()
+                            .getParameters()
+                            .getTensorsList();
 
-                    SimpleDateFormat sdf = null;
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                        sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
-                    }
-                    Date currentDate = new Date();
-                    // Format the date and time using the SimpleDateFormat object
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                        start_time = sdf.format(currentDate);
-                    }
-                    List<ByteString> layers = message.getEvaluateIns().getParameters().getTensorsList();
-                    // IDS adaptation: the autoencoder has 12 Dense layers
-                    ByteBuffer[] newWeights = new ByteBuffer[layers.size()] ;
+                    ByteBuffer[] newWeights =
+                        new ByteBuffer[layers.size()];
+
                     for (int i = 0; i < layers.size(); i++) {
-                        newWeights[i] = ByteBuffer.wrap(layers.get(i).toByteArray()).order(ByteOrder.LITTLE_ENDIAN);
+                        newWeights[i] = ByteBuffer
+                            .wrap(layers.get(i).toByteArray())
+                            .order(ByteOrder.LITTLE_ENDIAN);
                     }
-                    Pair<Pair<Float, Float>, Integer> inference = worker.fc.evaluate(newWeights);
-                    float loss = inference.first.first;
-                    float accuracy = inference.first.second;
-                    int test_size = inference.second;
-                    currentDate = new Date();
-                    // Format the date and time using the SimpleDateFormat object
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                        end_time = sdf.format(currentDate);
-                    }
-                    Log.d("EVALUATE-RESPONSE", "ABOUT TO SEND EVALUATE RESPONSE");
-                    String newMessage = "Time : " + end_time + " , " + " Round Accuracy : " + String.valueOf(accuracy);
-                    writeStringToFile( context ,"FlowerResults.txt", newMessage);
+
+                    Pair<Float, Integer> inference =
+                        worker.fc.evaluate(newWeights);
+
+                    float valLoss = inference.first;
+                    int totalExamples = inference.second;
+
                     progressUpdater.setProgress();
-                    c = evaluateResAsProto(loss , accuracy , test_size);
+
+                    c = evaluateResAsProto(
+                        valLoss,
+                        totalExamples
+                    );
                 }
                 worker.UniversalRequestObserver.onNext(c);
             }
@@ -423,52 +423,76 @@ public class FlowerWorker extends Worker {
         return ClientMessage.newBuilder().setGetParametersRes(res).build();
     }
 
-    private static ClientMessage fitResAsProto(ByteBuffer[] weights, int training_size){
+    private static ClientMessage fitResAsProto(
+        ByteBuffer[] weights,
+        int training_size,
+        float trainLoss,
+        float valLoss) {
+
         List<ByteString> layers = new ArrayList<>();
+
         for (ByteBuffer weight : weights) {
-            layers.add(ByteString.copyFrom(weight));
+            ByteBuffer buffer = weight.duplicate();
+            buffer.rewind();
+
+            layers.add(ByteString.copyFrom(buffer));
         }
 
-        Log.d("ENDTIME", end_time);
-        Log.d("STARTTIME", start_time);
-
-        // An example portraying how to upload data to the server via FLower Server side GRPC
         Map<String, Scalar> metrics = new HashMap<>();
 
-        metrics.put("start_time", Scalar.newBuilder().setString(start_time).build());
-        metrics.put("end_time", Scalar.newBuilder().setString(end_time).build());
-        Parameters p = Parameters.newBuilder().addAllTensors(layers).setTensorType("ND").build();
-        ClientMessage.FitRes res = ClientMessage.FitRes.newBuilder().setParameters(p).setNumExamples(training_size).putAllMetrics(metrics).build();
-        return ClientMessage.newBuilder().setFitRes(res).build();
+        metrics.put(
+            "train_loss",
+            Scalar.newBuilder()
+                .setDouble(trainLoss)
+                .build()
+        );
+
+        metrics.put(
+            "val_loss",
+            Scalar.newBuilder()
+                .setDouble(valLoss)
+                .build()
+        );
+
+        Parameters p = Parameters.newBuilder()
+            .addAllTensors(layers)
+            .setTensorType("ND")
+            .build();
+
+        ClientMessage.FitRes res =
+            ClientMessage.FitRes.newBuilder()
+                .setParameters(p)
+                .setNumExamples(training_size)
+                .putAllMetrics(metrics)
+                .build();
+
+        return ClientMessage.newBuilder()
+            .setFitRes(res)
+            .build();
     }
 
+    private static ClientMessage evaluateResAsProto(float valLoss, int testing_size) {
 
-
-    private static ClientMessage evaluateResAsProto(float loss, float accuracy ,int testing_size){
-
-        // attempting to send accuracy to the server :
         Map<String, Scalar> metrics = new HashMap<>();
 
+        metrics.put(
+            "val_loss",
+            Scalar.newBuilder()
+                .setDouble(valLoss)
+                .build()
+        );
 
-        Log.d("ENDTIME", end_time);
-        Log.d("STARTTIME", start_time);
+        ClientMessage.EvaluateRes res =
+            ClientMessage.EvaluateRes.newBuilder()
+                .setLoss(valLoss)
+                .setNumExamples(testing_size)
+                .putAllMetrics(metrics)
+                .build();
 
-        Log.d("Accuracy", String.valueOf(accuracy));
-        Log.d("Loss", String.valueOf(loss));
-
-
-        // An example portraying how to upload data to the server via FLower Server side GRPC
-        metrics.put("Accuracy", Scalar.newBuilder().setString(String.valueOf(accuracy)).build());
-        metrics.put("Loss" , Scalar.newBuilder().setString(String.valueOf(loss)).build());
-        metrics.put("start_time", Scalar.newBuilder().setString(start_time).build());
-        metrics.put("end_time", Scalar.newBuilder().setString(end_time).build());
-
-
-        ClientMessage.EvaluateRes res = ClientMessage.EvaluateRes.newBuilder().setLoss(loss).setNumExamples(testing_size).putAllMetrics(metrics).build();
-        return ClientMessage.newBuilder().setEvaluateRes(res).build();
+        return ClientMessage.newBuilder()
+            .setEvaluateRes(res)
+            .build();
     }
-
-
 }
 
 

@@ -412,6 +412,60 @@ public final class TransferLearningModel implements Closeable {
     }
   }
 
+  public int getValidationSize() {
+    return validationSamples.size();
+  }
+
+  public float calculateValidationLoss() {
+      trainingLock.lock();
+      inferenceLock.lock();
+      parameterLock.readLock().lock();
+  
+      try {
+          if (validationSamples.isEmpty()) {
+              throw new IllegalStateException(
+                  "No validation samples loaded"
+              );
+          }
+  
+          double totalLoss = 0.0;
+  
+          for (TestingSample sample : validationSamples) {
+              ByteBuffer input = sample.bottleneck
+                      .duplicate()
+                      .order(ByteOrder.nativeOrder());
+  
+              input.rewind();
+  
+              float[] reconstructed = inferenceModel.runInference(
+                  input,
+                  modelParameters
+              );
+  
+              double sampleLoss = 0.0;
+  
+              for (int j = 0; j < reconstructed.length; j++) {
+                  double difference =
+                      input.getFloat(j * FLOAT_BYTES)
+                      - reconstructed[j];
+  
+                  sampleLoss += difference * difference;
+              }
+  
+              totalLoss += sampleLoss / reconstructed.length;
+          }
+  
+          return (float) (
+              totalLoss / validationSamples.size()
+          );
+  
+      } finally {
+          parameterLock.readLock().unlock();
+          inferenceLock.unlock();
+          trainingLock.unlock();
+      }
+  }
+
   public float calculateValidationThreshold() {
     List<Float> benignValidationErrors = new ArrayList<>();
 

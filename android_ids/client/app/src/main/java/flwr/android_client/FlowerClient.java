@@ -24,10 +24,20 @@ public class FlowerClient {
     private final ConditionVariable isTraining = new ConditionVariable();
     private static String TAG = "Flower";
     private int local_epochs = 1;
+    private volatile float trainLoss;
+    private volatile float valLoss;
 
     public FlowerClient(Context context) {
         this.tlModel = new TransferLearningModelWrapper(context);
         this.context = context;
+    }
+
+    public float getTrainLoss() {
+        return trainLoss;
+    }
+
+    public float getValLoss() {
+        return valLoss;
     }
 
     public ByteBuffer[] getWeights() {
@@ -37,26 +47,48 @@ public class FlowerClient {
     public Pair<ByteBuffer[], Integer> fit(ByteBuffer[] weights, int epochs) {
 
         this.local_epochs = epochs;
+
         tlModel.updateParameters(weights);
+
         isTraining.close();
+
         tlModel.train(this.local_epochs);
-        tlModel.enableTraining((epoch, loss) -> setLastLoss(epoch, loss));
-        Log.e(TAG ,  "Training enabled. Local Epochs = " + this.local_epochs);
+
+        tlModel.enableTraining(
+            (epoch, loss) -> setLastLoss(epoch, loss)
+        );
+
         isTraining.block();
-        return Pair.create(getWeights(), tlModel.getSize_Training());
+
+        valLoss = tlModel.calculateValidationLoss();
+
+        return Pair.create(
+            getWeights(),
+            tlModel.getSize_Training()
+        );
     }
 
-    public Pair<Pair<Float, Float>, Integer> evaluate(ByteBuffer[] weights) {
+    public Pair<Float, Integer> evaluate(ByteBuffer[] weights) {
+
         tlModel.updateParameters(weights);
         tlModel.disableTraining();
-        return Pair.create(tlModel.calculateTestStatistics(), tlModel.getSize_Testing());
+
+        float valLoss = tlModel.calculateValidationLoss();
+
+        int totalExamples = tlModel.getValidationSize();
+
+        return Pair.create(valLoss, totalExamples);
     }
 
     public void setLastLoss(int epoch, float newLoss) {
+
+        trainLoss = newLoss;
+
         if (epoch == this.local_epochs - 1) {
-            Log.e(TAG, "Training finished after epoch = " + epoch);
             lastLoss.postValue(newLoss);
+
             tlModel.disableTraining();
+
             isTraining.open();
         }
     }

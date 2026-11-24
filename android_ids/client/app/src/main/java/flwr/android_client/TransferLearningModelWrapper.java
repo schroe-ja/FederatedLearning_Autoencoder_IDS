@@ -88,6 +88,14 @@ public class TransferLearningModelWrapper implements Closeable {
         return model.getTestStatistics();
     }
 
+    public float calculateValidationLoss() {
+        return model.calculateValidationLoss();
+    }
+    
+    public int getValidationSize() {
+        return model.getValidationSize();
+    }
+
     // This method is thread-safe, but blocking.
     public Prediction[] predict(float[] image) {
         return model.predict(image);
