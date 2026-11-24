@@ -1,9 +1,9 @@
 [project]
 name = "android-flwr-tensorflow"
 version = "0.1.0"
-requires-python = ">=3.13,<3.14"
+requires-python = ">=3.11,<3.12"
 dependencies = [
-    "tensorflow>=2.21.0",
+    "tensorflow==2.18.0",
     "numpy",
 ]
 

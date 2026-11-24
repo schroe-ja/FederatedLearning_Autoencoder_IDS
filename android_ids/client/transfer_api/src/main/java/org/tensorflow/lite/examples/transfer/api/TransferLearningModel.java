@@ -333,23 +333,25 @@ public final class TransferLearningModel implements Closeable {
                   break epochLoop;
                 }
 
-                trainingBatchClasses.put(zeroBatchClasses);
-                trainingBatchClasses.rewind();
-                zeroBatchClasses.rewind();
-
-                for (int sampleIdx = 0; sampleIdx < batch.size(); sampleIdx++) {
-                  TrainingSample sample = batch.get(sampleIdx);
-                  trainingBatchBottlenecks.put(sample.bottleneck);
-                  sample.bottleneck.rewind();
-
-                  // IDS adaptation (autoencoder): the target is the input itself.
-                  // The identity base model makes the bottleneck equal to the input vector.
-                  for (int j = 0; j < classes.size(); j++) {
-                    trainingBatchClasses.putFloat(
-                        (sampleIdx * classes.size() + j) * FLOAT_BYTES,
-                        sample.bottleneck.getFloat(j * FLOAT_BYTES));
-                  }
+                trainingBatchBottlenecks.clear();
+                trainingBatchClasses.clear();
+                
+                for (TrainingSample sample : batch) {
+                    ByteBuffer source = sample.bottleneck.duplicate();
+                    source.rewind();
+                
+                    trainingBatchBottlenecks.put(source);
                 }
+                
+                trainingBatchBottlenecks.rewind();
+                
+                // Autoencoder: target = input.
+                // Copy identical bytes without float reinterpretation.
+                trainingBatchClasses.put(
+                    trainingBatchBottlenecks.duplicate()
+                );
+                
+                trainingBatchClasses.rewind();
                 trainingBatchBottlenecks.rewind();
 
                 float loss =
@@ -707,29 +709,55 @@ public final class TransferLearningModel implements Closeable {
 
 
   public void updateParameters(ByteBuffer[] newParams){
+    trainingLock.lock();
     parameterLock.writeLock().lock();
+
     try {
-      modelParameters = newParams;
+        if (newParams.length != modelParameters.length) {
+            throw new IllegalArgumentException(
+                "Parameter count mismatch"
+            );
+        }
+
+        for (int i = 0; i < newParams.length; i++) {
+            ByteBuffer source = newParams[i].duplicate();
+            source.rewind();
+
+            ByteBuffer destination = modelParameters[i];
+
+            if (source.remaining() != destination.capacity()) {
+                throw new IllegalArgumentException(
+                    "Parameter size mismatch at tensor " + i
+                );
+            }
+
+            destination.clear();
+            destination.put(source);
+            destination.rewind();
+        }
+
+        // Reset optimizer state for the new federated round.
+        for (ByteBuffer buffer : optimizerState) {
+            fillBufferWithZeros(buffer);
+        }
+
+        for (ByteBuffer buffer : nextOptimizerState) {
+            fillBufferWithZeros(buffer);
+        }
+
     } finally {
-      parameterLock.writeLock().unlock();
+        parameterLock.writeLock().unlock();
+        trainingLock.unlock();
     }
   }
 
   private static void fillBufferWithZeros(ByteBuffer buffer) {
-    int bufSize = buffer.capacity();
-    int chunkSize = Math.min(1024, bufSize);
+    buffer.clear();
 
-    ByteBuffer zerosChunk = allocateBuffer(chunkSize);
-    for (int idx = 0; idx < chunkSize; idx++) {
-      zerosChunk.put((byte) 0);
+    while (buffer.hasRemaining()) {
+        buffer.put((byte) 0);
     }
-    zerosChunk.rewind();
 
-    for (int chunkIdx = 0; chunkIdx < bufSize / chunkSize; chunkIdx++) {
-      buffer.put(zerosChunk);
-    }
-    for (int idx = 0; idx < bufSize % chunkSize; idx++) {
-      buffer.put((byte) 0);
-    }
+    buffer.rewind();
   }
 }

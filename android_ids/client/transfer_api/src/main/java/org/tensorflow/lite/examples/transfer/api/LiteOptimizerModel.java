@@ -46,24 +46,52 @@ public class LiteOptimizerModel implements Closeable {
       ByteBuffer[] optimizerState,
       ByteBuffer[] newParams,
       ByteBuffer[] newOptimizerState) {
-    Object[] inputs = new Object[currentParams.length + gradients.length];
-    System.arraycopy(currentParams, 0, inputs, 0, currentParams.length);
-    System.arraycopy(gradients, 0, inputs, currentParams.length, gradients.length);
+    
+    int numParams = currentParams.length;
+    int numStates = optimizerState.length;
+
+    Object[] inputs = new Object[
+        numParams + gradients.length + numStates
+    ];
+
+    System.arraycopy(currentParams, 0, inputs, 0, numParams);
+    System.arraycopy(gradients, 0, inputs, numParams, gradients.length);
+
+    System.arraycopy(
+        optimizerState, 0, inputs,
+        numParams + gradients.length, numStates
+    );
 
     Map<Integer, Object> outputs = new TreeMap<>();
-    for (int paramIdx = 0; paramIdx < newParams.length; paramIdx++) {
-      outputs.put(paramIdx, newParams[paramIdx]);
+
+    for (int i = 0; i < newParams.length; i++) {
+        outputs.put(i, newParams[i]);
     }
 
-    modelWrapper.getInterpreter().runForMultipleInputsOutputs(inputs, outputs);
-    for (ByteBuffer buffer : currentParams) {
-      buffer.rewind();
+    for (int i = 0; i < newOptimizerState.length; i++) {
+        outputs.put(
+            newParams.length + i,
+            newOptimizerState[i]
+        );
     }
-    for (ByteBuffer buffer : gradients) {
-      buffer.rewind();
+
+    for (Object input : inputs) {
+        ((ByteBuffer) input).rewind();
     }
-    for (ByteBuffer buffer : newParams) {
-      buffer.rewind();
+
+    for (Object output : outputs.values()) {
+        ((ByteBuffer) output).rewind();
+    }
+
+    modelWrapper.getInterpreter()
+        .runForMultipleInputsOutputs(inputs, outputs);
+
+    for (Object input : inputs) {
+        ((ByteBuffer) input).rewind();
+    }
+
+    for (Object output : outputs.values()) {
+        ((ByteBuffer) output).rewind();
     }
   }
 

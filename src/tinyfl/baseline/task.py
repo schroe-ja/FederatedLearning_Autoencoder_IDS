@@ -231,7 +231,7 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
     phase_results_dt = phase_recall(
         y_pred_malicious_dt,
         phase_malicious_test,
-        "AE + Decision Tree"
+        "AE + DT"
     )
 
     # Flatten arrays so metrics receive one-dimensional inputs
@@ -266,6 +266,51 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
         errors_benign,
         errors_malicious,
     ])
+
+    phase_malicious_test = np.asarray(
+        phase_malicious_test
+    ).ravel()
+
+    scan_mask = phase_malicious_test == "scan"
+    distribution_mask = phase_malicious_test == "distribution"
+
+    if len(phase_malicious_test) != len(X_malicious_test):
+        raise ValueError(
+            "Attack phases do not match malicious test samples"
+        )
+
+    # Flatten IoTPOT predictions and scores
+    y_pred_iotpot_ae = np.asarray(
+        y_pred_iotpot_percentile
+    ).ravel().astype(int)
+
+    y_pred_iotpot_dt = np.asarray(
+        y_pred_iotpot
+    ).ravel().astype(int)
+
+    # Evaluate each dataset separately
+    datasets: dict[str, dict[str, np.ndarray]] = {
+        "Benign": {
+            "y_true": np.zeros(len(X_benign_test), dtype=int),
+            "ae_pred": y_pred_benign_ae,
+            "dt_pred": y_pred_benign_dt,
+        },
+        "Scan": {
+            "y_true": np.ones(int(scan_mask.sum()), dtype=int),
+            "ae_pred": y_pred_malicious_ae[scan_mask],
+            "dt_pred": y_pred_malicious_dt[scan_mask],
+        },
+        "Distribution": {
+            "y_true": np.ones(int(distribution_mask.sum()), dtype=int),
+            "ae_pred": y_pred_malicious_ae[distribution_mask],
+            "dt_pred": y_pred_malicious_dt[distribution_mask],
+        },
+        "IoTPOT": {
+            "y_true": np.ones(len(X_iotpot_test), dtype=int),
+            "ae_pred": y_pred_iotpot_ae,
+            "dt_pred": y_pred_iotpot_dt,
+        },
+    }
 
     benign_mask = (y_true == 0)
     malicious_mask = (y_true == 1)
@@ -326,20 +371,16 @@ def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
     end_time = time.time()
 
     ids_eval = EvaluationMetrics(
-        y_true, y_pred, y_pred_percentile, y_proba, errors_full, start_time, end_time
+        y_true,
+        y_pred,
+        y_pred_percentile,
+        y_proba,
+        errors_full,
+        start_time,
+        end_time,
+        datasets=datasets,
     )
+
     metrics = ids_eval.metrics()
-
-    metrics["IoTPOT Recall AE"] = float(f"{iotpot_recall_ae:.4f}")
-    metrics["IoTPOT Recall DT"] = float(f"{iotpot_recall_dt:.4f}")
-    metrics["IoTPOT Detected AE"] = int(y_pred_iotpot_ae.sum())
-    metrics["IoTPOT Detected DT"] = int(y_pred_iotpot_dt.sum())
-    metrics["IoTPOT Samples"] = int(len(y_iotpot_true))
-
-    metrics["Scan Recall AE"] = phase_results_ae.get("scan", 0.0)
-    metrics["Scan Recall DT"] = phase_results_dt.get("scan", 0.0)
-
-    metrics["Distribution Recall AE"] = phase_results_ae.get("distribution", 0.0)
-    metrics["Distribution Recall DT"] = phase_results_dt.get("distribution", 0.0)
 
     return MetricRecord(metrics)

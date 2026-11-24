@@ -12,10 +12,10 @@ name = "tinyfl-ids"
 version = "1.0.0"
 description = ""
 license = "Apache-2.0"
-requires-python = ">=3.13,<3.14"
+requires-python = ">=3.11,<3.12"
 # Dependencies for your Flower App
 dependencies = [
-    "flwr[simulation]>=1.23.0",
+    "flwr[simulation]==1.36.0",
     "torch==2.7.1",
     "scikit-learn",
     "numpy",
@@ -23,7 +23,7 @@ dependencies = [
     "psutil",
     "onnx>=1.18",
     "emlearn",
-    "tensorflow>=2.21.0",
+    "tensorflow==2.18.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -35,8 +35,8 @@ publisher = "k"
 
 # Point to your ServerApp and ClientApp objects; change it to the used experiment
 [tool.flwr.app.components]
-serverapp = "src.tinyfl.sota.server_app:app"
-clientapp = "src.tinyfl.sota.client_app:app"
+serverapp = "src.tinyfl.baseline.server_app:app"
+clientapp = "src.tinyfl.baseline.client_app:app"
 
 # Custom config values accessible via `context.run_config`
 [tool.flwr.app.config]

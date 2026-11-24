@@ -1,7 +1,5 @@
 package flwr.android_client;
 
-
-
 import static android.content.Context.NOTIFICATION_SERVICE;
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -25,6 +23,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -358,10 +357,10 @@ public class FlowerWorker extends Worker {
                     assert epoch_config != null;
                     int local_epochs = (int) epoch_config.getSint64();
 
-                    // IDS adaptation: the autoencoder has 6 Dense layers = 12 tensors (was 10 for CIFAR)
+                    // IDS adaptation: the autoencoder has 12 Dense layers
                     ByteBuffer[] newWeights = new ByteBuffer[layers.size()] ;
                     for (int i = 0; i < layers.size(); i++) {
-                        newWeights[i] = ByteBuffer.wrap(layers.get(i).toByteArray());
+                        newWeights[i] = ByteBuffer.wrap(layers.get(i).toByteArray()).order(ByteOrder.LITTLE_ENDIAN);
                     }
 
                     Pair<ByteBuffer[], Integer> outputs = worker.fc.fit(newWeights, local_epochs);
@@ -385,10 +384,10 @@ public class FlowerWorker extends Worker {
                         start_time = sdf.format(currentDate);
                     }
                     List<ByteString> layers = message.getEvaluateIns().getParameters().getTensorsList();
-                    // IDS adaptation: the autoencoder has 6 Dense layers = 12 tensors (was 10 for CIFAR)
+                    // IDS adaptation: the autoencoder has 12 Dense layers
                     ByteBuffer[] newWeights = new ByteBuffer[layers.size()] ;
                     for (int i = 0; i < layers.size(); i++) {
-                        newWeights[i] = ByteBuffer.wrap(layers.get(i).toByteArray());
+                        newWeights[i] = ByteBuffer.wrap(layers.get(i).toByteArray()).order(ByteOrder.LITTLE_ENDIAN);
                     }
                     Pair<Pair<Float, Float>, Integer> inference = worker.fc.evaluate(newWeights);
                     float loss = inference.first.first;
