@@ -14,6 +14,8 @@ from sklearn.metrics import (
     recall_score
 )
 
+from ae_loader import extract_dt_features
+
 parser = argparse.ArgumentParser()
 
 parser.add_argument(
@@ -23,8 +25,8 @@ parser.add_argument(
 )
 
 parser.add_argument("--dataset", required=True)
-parser.add_argument("--threshold", type=float)
-parser.add_argument("--quantization", type=float)
+parser.add_argument("--threshold", type=float) # 0.007534280885010958
+parser.add_argument("--quantization", type=float) # 10000
 
 args = parser.parse_args()
 
@@ -37,28 +39,17 @@ else:
 df = pd.read_csv(args.dataset)
 
 df = df[df["label"].isin([0, 1])].copy()
-df = df.sort_values("timestamp")
 
 feature_columns = [
     f"feature_{i}" for i in range(16)
 ]
 
-X = df[feature_columns].to_numpy(
-    dtype=np.float32
-)
-
+X = df[feature_columns].to_numpy(dtype=np.float32, copy=True)
 y_true = df["label"].to_numpy(dtype=int)
 
 predictions = []
 scores = []
 inference_times = []
-
-if args.model == "dt":
-    X = np.clip(
-        X * args.quantization,
-        -32768,
-        32767
-    ).astype(np.int16)
 
 start_total = time.perf_counter()
 
@@ -72,7 +63,8 @@ for features in X:
             args.threshold
         )
     else:
-        prediction = predict_tree(features)
+        dt_features = extract_dt_features(features)
+        prediction = predict_tree(dt_features)
         score = prediction
 
     end = time.perf_counter_ns()

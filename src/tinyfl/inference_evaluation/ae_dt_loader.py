@@ -1,5 +1,5 @@
 from ae_loader import extract_dt_features
-from tree_loader import predict_tree
+from dt_loader import predict_tree
 
 
 def predict_ae_dt(features):
